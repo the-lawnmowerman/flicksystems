@@ -1031,7 +1031,9 @@ footer a:hover{text-decoration:underline}
     // media/intro.mp4 plays once as dots when the page opens, then becomes FLICK. Swap the file to change it;
     // for line art add crop/pool and a higher floor (see git history for the blueprint clip's settings).
     intro:       { type: 'video', vid: null, mirror: false, crop: [0.03, 0.02, 0.97, 0.98], floor: 0.09, tint: [0.96, 0.96, 0.95], tall: true },
-    // media/intro-code.mp4 plays right after it, in its own colours (Jason with green code projected on him)
+    // then media/intro-icons.mp4, in its own colours (dotted print / web / AI icons, orange sparks)
+    introIcons:  { type: 'video', vid: null, mirror: false, crop: [0.03, 0.08, 0.97, 0.92], floor: 0.16, color: true, tall: true },
+    // then media/intro-code.mp4, in its own colours (Jason with green code projected on him)
     intro2:      { type: 'video', vid: null, mirror: false, crop: [0.02, 0.03, 0.98, 0.97], floor: 0.1, color: true, tall: true },
     dropped:     { type: 'video', vid: null, mirror: false },
     mirror:      { type: 'video', vid: null, mirror: true }
@@ -1245,7 +1247,7 @@ footer a:hover{text-decoration:underline}
   var HEX = '0123456789ABCDEF';
   var TAGS = ['ACCESS GRANTED', 'SIGNAL LOST', 'DECRYPTING', 'root@flick', 'ERR 0x1F', 'sudo make art', 'OVERRIDE', '0xDEADBEEF', 'sys.flick', 'BUFFER OVERFLOW'];
   // how much of the screen rains code on each source: busier on Chaos and the camera
-  var RAIN_AMT = { wordmark: 0.3, intro: 0.2, intro2: 0.24, systems: 0.42, chaos: 0.62, photography: 0.52 };
+  var RAIN_AMT = { wordmark: 0.3, intro: 0.2, introIcons: 0.24, intro2: 0.24, systems: 0.42, chaos: 0.62, photography: 0.52 };
   var codeCv = null, cx2 = null, rain = { cols: [], cell: 16, next: 0 }, bursts = [];
   function codeResize() {
     codeCv = codeCv || document.getElementById('code');
@@ -1486,14 +1488,16 @@ footer a:hover{text-decoration:underline}
   Promise.all([fontsReady, portraitReady, introReady]).then(function (r) {
     defaultHome = r[1];
     // The intro clips play one after another as dots, then the dots become FLICK.
-    // The second clip starts loading once the first is ready, so it doesn't slow that one down.
-    var loads = {
-      intro: Promise.resolve(r[2]),
-      intro2: reduce ? Promise.resolve(null) : loadVideo('media/intro-code.mp4')
-        .then(function (v) { v.loop = false; SOURCES.intro2.vid = v; return v; })
-        .catch(function () { return null; })
-    };
-    var queue = ['intro', 'intro2'], playing = null, timer = 0, done = false;
+    // Each clip starts loading once the one before it is ready, so it doesn't slow that one down.
+    function later(name, url, after) {
+      return after.then(function () { return reduce ? null : loadVideo(url); })
+        .then(function (v) { if (v) { v.loop = false; SOURCES[name].vid = v; } return v; })
+        .catch(function () { return null; });
+    }
+    var loads = { intro: Promise.resolve(r[2]) };
+    loads.introIcons = later('introIcons', 'media/intro-icons.mp4', loads.intro);
+    loads.intro2 = later('intro2', 'media/intro-code.mp4', loads.introIcons);
+    var queue = ['intro', 'introIcons', 'intro2'], playing = null, timer = 0, done = false;
     function finish() {                    // after the last clip, or on the first click
       if (done) return;
       done = true; clearTimeout(timer);
