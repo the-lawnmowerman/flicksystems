@@ -725,20 +725,20 @@ footer a:hover{text-decoration:underline}
      single board under the ring shows its name, meter and status. Signal pulses
      hop out along the traces and flash each chip's status LED. */
   var PROJECTS = [
-    { name: 'Flick Systems', status: 'progress' },
-    { name: 'Chaos portfolio', status: 'progress' },
-    { name: 'Newcastle Flow', status: 'almost' },
-    { name: 'Tax Guy OKC', status: 'done' },
-    { name: 'Camp Mack Cookie Co.', status: 'done' },
-    { name: "Dilly Ray's Sweet Heat", status: 'done' },
-    { name: 'Industrial Cleaning', status: 'done' },
-    { name: 'Avexis', status: 'done' },
-    { name: 'AutoMax', status: 'done' },
-    { name: 'R3DPILL AI', status: 'done' },
-    { name: 'M.O.W.E.', status: 'done' },
-    { name: 'NF Visibility Deck', status: 'done' },
-    { name: 'Supabase Keep-alive', status: 'done' },
-    { name: 'Spartan Watermark', status: 'done' }
+    { name: 'Flick Systems', status: 'progress', icon: 'hub' },
+    { name: 'Chaos portfolio', status: 'progress', icon: 'chaos' },
+    { name: 'Newcastle Flow', status: 'almost', icon: 'flow' },
+    { name: 'Tax Guy OKC', status: 'done', icon: 'dollar' },
+    { name: 'Camp Mack Cookie Co.', status: 'done', icon: 'cookie' },
+    { name: "Dilly Ray's Sweet Heat", status: 'done', icon: 'bus' },
+    { name: 'Industrial Cleaning', status: 'done', icon: 'sparkle' },
+    { name: 'Avexis', status: 'done', icon: 'avexis' },
+    { name: 'AutoMax', status: 'done', icon: 'car' },
+    { name: 'R3DPILL AI', status: 'done', icon: 'pill' },
+    { name: 'M.O.W.E.', status: 'done', icon: 'vhs' },
+    { name: 'NF Visibility Deck', status: 'done', icon: 'magnifier' },
+    { name: 'Supabase Keep-alive', status: 'done', icon: 'pulse' },
+    { name: 'Spartan Watermark', status: 'done', icon: 'helmet' }
   ];
   var STATUS = {
     done:     { label: 'Done',        rgb: [0.34, 0.95, 0.53] },
@@ -761,22 +761,131 @@ footer a:hover{text-decoration:underline}
     var face = board.querySelector('.sx-face');
     face.classList.remove('flip'); void face.offsetWidth; face.classList.add('flip');   // restart the flip
   }
+  /* Chip icons: one small line drawing per project, in a unit box (-1..1, y down),
+     scaled onto the chip. The status LED sits on the chip's top-right corner. tint colours an icon; the rest are white. */
+  var ICON_TINT = { pill: [1, 0.26, 0.3] };
+  function poly(pts, closed) {
+    var out = [];
+    for (var i = 0; i + 1 < pts.length; i++) out.push([pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]]);
+    if (closed) out.push([pts[pts.length - 1][0], pts[pts.length - 1][1], pts[0][0], pts[0][1]]);
+    return out;
+  }
+  function star(cx, cy, r, ri) {             // four-point sparkle
+    var pts = [];
+    for (var i = 0; i < 8; i++) { var a = i * Math.PI / 4 - Math.PI / 2, rr = i % 2 ? ri : r; pts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr]); }
+    return poly(pts, true);
+  }
+  function wave(y, amp) {
+    var pts = [];
+    for (var i = 0; i <= 14; i++) { var x = -0.9 + i * 1.8 / 14; pts.push([x, y + Math.sin(i / 14 * Math.PI * 3) * amp]); }
+    return poly(pts, false);
+  }
+  var ICONS = {
+    hub: function () {                       // the hub, branching out to its channels
+      var o = circleSegs(0, 0, 0.26, 10);
+      [-90, 30, 150].forEach(function (d) {
+        var a = d * Math.PI / 180, c = Math.cos(a), si = Math.sin(a);
+        o.push([c * 0.26, si * 0.26, c * 0.58, si * 0.58]);
+        o = o.concat(circleSegs(c * 0.76, si * 0.76, 0.18, 8));
+      });
+      return o;
+    },
+    chaos: function () {                     // shapes thrown about
+      var r = 0.32, a = 0.35;
+      return poly([[-0.55, -0.75], [-0.15, -0.1], [-0.95, -0.1]], true)
+        .concat(poly([[0.45 + r * Math.cos(a), -0.05 + r * Math.sin(a)], [0.45 - r * Math.sin(a), -0.05 + r * Math.cos(a)],
+                      [0.45 - r * Math.cos(a), -0.05 - r * Math.sin(a)], [0.45 + r * Math.sin(a), -0.05 - r * Math.cos(a)]], true))
+        .concat(circleSegs(-0.25, 0.55, 0.3, 10));
+    },
+    flow: function () { return wave(-0.5, 0.16).concat(wave(0, 0.16), wave(0.5, 0.16)); },
+    dollar: function () {                    // Tax Guy: a bold dollar sign
+      return arcSegs(0, -0.27, 0.3, -0.5, -4.71, 10).concat(arcSegs(0, 0.27, 0.3, -1.57, 2.65, 10), [[0, -0.85, 0, 0.85]]);
+    },
+    cookie: function () {                    // a lumpy round cookie with chips
+      var pts = [];
+      for (var i = 0; i < 16; i++) { var a = i / 16 * 6.283, rr = 0.86 + (i % 3 === 0 ? -0.07 : 0.02); pts.push([Math.cos(a) * rr, Math.sin(a) * rr]); }
+      var o = poly(pts, true);
+      [[-0.35, -0.3], [0.3, -0.38], [0.05, 0.1], [-0.4, 0.38], [0.42, 0.35]].forEach(function (c) { o = o.concat(circleSegs(c[0], c[1], 0.11, 6)); });
+      return o;
+    },
+    bus: function () {                       // Dilly Ray's double-decker
+      return rectSegs(-0.95, -0.72, 0.95, 0.42).concat([[-0.95, -0.14, 0.95, -0.14]],
+        rectSegs(-0.72, -0.56, -0.08, -0.3), rectSegs(0.1, -0.56, 0.72, -0.3),
+        circleSegs(-0.5, 0.56, 0.2, 8), circleSegs(0.5, 0.56, 0.2, 8));
+    },
+    sparkle: function () { return star(-0.2, 0.12, 0.78, 0.17).concat(star(0.58, -0.55, 0.32, 0.08), star(0.62, 0.6, 0.2, 0.05)); },
+    avexis: function () {                    // a hex badge with an A
+      var pts = [];
+      for (var i = 0; i < 6; i++) { var a = i / 6 * 6.283 - Math.PI / 2; pts.push([Math.cos(a) * 0.9, Math.sin(a) * 0.9]); }
+      return poly(pts, true).concat(poly([[-0.38, 0.45], [0, -0.48], [0.38, 0.45]], false), [[-0.2, 0.08, 0.2, 0.08]]);
+    },
+    car: function () {
+      return poly([[-0.95, 0.32], [-0.95, 0.0], [-0.62, -0.06], [-0.36, -0.46], [0.32, -0.46], [0.6, -0.06], [0.95, 0.04], [0.95, 0.32]], true)
+        .concat([[-0.3, -0.08, 0.52, -0.08], [0.06, -0.46, 0.06, -0.08]], circleSegs(-0.5, 0.34, 0.22, 8), circleSegs(0.5, 0.34, 0.22, 8));
+    },
+    pill: function () {                      // the red pill, on a slant
+      var a = -0.7, c = Math.cos(a), si = Math.sin(a), L = 0.55, r = 0.34;
+      function at(x, y) { return [x * c - y * si, x * si + y * c]; }
+      var o = [], i, n = 7;
+      for (i = 0; i < n; i++) {               // the two rounded ends
+        var t0 = Math.PI / 2 + i / n * Math.PI, t1 = Math.PI / 2 + (i + 1) / n * Math.PI;
+        var p0 = at(-L + Math.cos(t0) * r, Math.sin(t0) * r), p1 = at(-L + Math.cos(t1) * r, Math.sin(t1) * r);
+        var q0 = at(L - Math.cos(t0) * r, Math.sin(t0) * r), q1 = at(L - Math.cos(t1) * r, Math.sin(t1) * r);
+        o.push([p0[0], p0[1], p1[0], p1[1]], [q0[0], q0[1], q1[0], q1[1]]);
+      }
+      var a1 = at(-L, -r), a2 = at(L, -r), b1 = at(-L, r), b2 = at(L, r), m1 = at(0, -r), m2 = at(0, r);
+      return o.concat([[a1[0], a1[1], a2[0], a2[1]], [b1[0], b1[1], b2[0], b2[1]], [m1[0], m1[1], m2[0], m2[1]]]);
+    },
+    vhs: function () {                       // M.O.W.E.'s VHS look: a cassette
+      return rectSegs(-0.95, -0.6, 0.95, 0.6).concat(circleSegs(-0.4, -0.08, 0.24, 9), circleSegs(0.4, -0.08, 0.24, 9),
+        poly([[-0.5, 0.6], [-0.38, 0.34], [0.38, 0.34], [0.5, 0.6]], false));
+    },
+    magnifier: function () {                 // search visibility
+      return circleSegs(-0.2, -0.2, 0.52, 14).concat([[0.18, 0.18, 0.78, 0.78], [0.1, 0.27, 0.68, 0.86], [0.27, 0.1, 0.86, 0.68]]);
+    },
+    pulse: function () {                     // the weekly keep-alive ping
+      return poly([[-0.95, 0.1], [-0.48, 0.1], [-0.32, -0.22], [-0.14, 0.52], [0.06, -0.78], [0.24, 0.38], [0.38, 0.1], [0.95, 0.1]], false)
+        .concat(circleSegs(0.72, 0.1, 0.09, 6));
+    },
+    helmet: function () {                    // a Spartan helmet, front on, with its crest
+      return arcSegs(0, 0.05, 0.62, Math.PI, Math.PI * 2, 10)
+        .concat([[-0.62, 0.05, -0.52, 0.9], [0.62, 0.05, 0.52, 0.9]],
+                poly([[-0.52, 0.9], [-0.15, 0.9], [-0.15, 0.15], [-0.5, 0.15]], false),
+                poly([[0.52, 0.9], [0.15, 0.9], [0.15, 0.15], [0.5, 0.15]], false),
+                arcSegs(0, 0.05, 0.9, Math.PI * 1.15, Math.PI * 1.85, 10));
+    }
+  };
+  function iconSegs(name, S) {
+    var f = ICONS[name];
+    return (f ? f() : rectSegs(-0.4, -0.4, 0.4, 0.4)).map(function (g) { return [g[0] * S, g[1] * S, g[2] * S, g[3] * S]; });
+  }
   function initSchematic(now) {
     var n = PROJECTS.length, R = Math.min(box.w * 0.4, box.h * 0.95), s = Math.max(14, Math.min(34, R * 0.14));
     var ringY = -box.h * 0.08, chips = [], i, k = 0, e;
     for (i = 0; i < n; i++) chips.push({ th: i / n * 6.283, x: 0, z: 0, tx: 0, tz: 0, front: 0 });
-    var nSpine = (N * 0.04) | 0, nBus = (N * 0.09) | 0, nSpoke = (N * 0.19) | 0, nChip = (N * 0.44) | 0, nLed = (N * 0.07) | 0;
+    var nSpine = (N * 0.04) | 0, nBus = (N * 0.09) | 0, nSpoke = (N * 0.14) | 0, nChip = (N * 0.49) | 0, nLed = (N * 0.07) | 0;
     for (; k < nSpine; k++) { AR[k] = 0; AX[k] = rnd(-1, 1); AY[k] = rnd(ringY - box.h * 0.22, ringY + box.h * 0.04); AZ[k] = rnd(-1, 1); setRGB(k, 0.3, 0.5, 1); }
     for (e = k + nBus; k < e; k++) { AR[k] = 1; AU[k] = rnd(0, 6.283); AG[k] = Math.random() < 0.6 ? 0 : 1; setRGB(k, 0.22, 0.42, 0.95); }
     for (e = k + nSpoke; k < e; k++) { AR[k] = 2; AG[k] = k % n; AU[k] = Math.random(); AX[k] = rnd(-0.8, 0.8); AY[k] = rnd(-0.8, 0.8); setRGB(k, 0.22, 0.42, 0.95); }
     // one chip drawing in local (across, down) coordinates, shared by every chip
-    var h = s / 2, segs = rectSegs(-h, -h, h, h).concat(rectSegs(-h * 0.4, -h * 0.4, h * 0.4, h * 0.4));
+    var h = s / 2, segs = rectSegs(-h, -h, h, h);
     for (var q = -1; q <= 1; q++) segs.push([q * h * 0.5, -h, q * h * 0.5, -h * 1.45], [q * h * 0.5, h, q * h * 0.5, h * 1.45]);
-    onSegments(segs, k, nChip, 0.5);
-    for (e = k + nChip; k < e; k++) { AR[k] = 3; AG[k] = k % n; setRGB(k, 0.92, 0.93, 0.95); }
+    // frame and pins are the same on every chip; the drawing inside is the project's own,
+    // and gets most of the chip's dots so it reads
+    var per = Math.floor(nChip / n), nFrame = (per * 0.25) | 0;
+    for (i = 0; i < n; i++) {
+      var ic = ICON_TINT[PROJECTS[i].icon] || [0.95, 0.96, 0.97];
+      onSegments(segs, k, nFrame, 0.5);
+      onSegments(iconSegs(PROJECTS[i].icon, h * 0.78), k + nFrame, per - nFrame, 0.4);
+      for (e = k + per; k < e; k++) {
+        AR[k] = 3; AG[k] = i;
+        if (e - k > per - nFrame) setRGB(k, 0.7, 0.74, 0.8);   // frame a little dimmer than the icon
+        else setRGB(k, ic[0], ic[1], ic[2]);
+      }
+    }
     for (e = k + nLed; k < e; k++) {
       var pi = k % n, a = rnd(0, 6.283), rr = Math.sqrt(Math.random()) * s * 0.1, c0 = STATUS[PROJECTS[pi].status].rgb;
-      AR[k] = 4; AG[k] = pi; AX[k] = h * 0.62 + Math.cos(a) * rr; AY[k] = -h * 0.62 + Math.sin(a) * rr; setRGB(k, c0[0], c0[1], c0[2]);
+      AR[k] = 4; AG[k] = pi; AX[k] = h * 0.92 + Math.cos(a) * rr; AY[k] = -h * 0.92 + Math.sin(a) * rr;   // on the chip's corner, clear of the icon setRGB(k, c0[0], c0[1], c0[2]);
     }
     for (; k < N; k++) { AR[k] = 5; AG[k] = k % n; AX[k] = rnd(-1.5, 1.5); AY[k] = rnd(-1.5, 1.5); AZ[k] = rnd(-1.5, 1.5); setRGB(k, 0.78, 0.93, 1); }
     anim = { kind: 'schematic', t0: now, chips: chips, R: R, s: s, ringY: ringY, n: n, cx: box.x + box.w / 2, cy: box.y + box.h * 0.42,
@@ -825,7 +934,7 @@ footer a:hover{text-decoration:underline}
         put3(A, k, Math.cos(ang) * rad, A.ringY, -Math.sin(ang) * rad, A.base * 0.8, undefined, A.zr); continue;
       }
       c = A.chips[AG[k]];
-      var hl = 1 + 0.35 * Math.pow(c.front, 6) * (AG[k] === at ? 1 : 0);   // the chip at the front swells
+      var hl = 1 + 0.7 * Math.pow(c.front, 6) * (AG[k] === at ? 1 : 0);    // the chip at the front swells, so its icon reads
       if (r === 2) {
         var u = AU[k], vis = u <= g;
         put3(A, k, c.x * u * 0.94 + AX[k], A.ringY + AY[k], c.z * u * 0.94, vis ? A.base * 0.85 : 0, undefined, A.zr);
