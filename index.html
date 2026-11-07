@@ -1810,10 +1810,11 @@ footer a:hover{text-decoration:underline}
   /* ---- dotted headings ----
      The big Doto headings are redrawn as real dots on a canvas over the (now
      transparent) text, which stays in the page for reading, search and print.
-     Every few seconds one dot rolls slowly into a neighbour and knocks it out of
-     its spot; that one bounces on into the next, and the last dot fills the
-     first gap, so the word always reads the same. Soft springs, lots of bounce. */
-  var DH = [], dhRaf = 0, DH_K = 0.0045, DH_DAMP = 0.965;
+     Now and then a game of tag: one dot hops out of its letter, arcs across to
+     another letter and knocks a dot out of its place, landing there with a
+     bounce. The knocked dot chases back across (sometimes via one more letter)
+     and drops into the first dot's empty spot, so the word always reads the same. */
+  var DH = [], dhRaf = 0, DH_K = 0.0045, DH_DAMP = 0.965, DH_LAND_K = 0.016, DH_LAND_DAMP = 0.9;
   function buildDotHeading(h) {
     var cs = getComputedStyle(h), fs = parseFloat(cs.fontSize), node = h.firstChild;
     if (!node || node.nodeType !== 3 || !fs) return null;
@@ -1826,12 +1827,13 @@ footer a:hover{text-decoration:underline}
     var cv = document.createElement('canvas'), g = cv.getContext('2d');
     cv.width = w; cv.height = hh;
     g.font = '100 ' + fs + 'px ' + cs.fontFamily; g.fillStyle = '#fff'; g.textBaseline = 'alphabetic';
-    var range = document.createRange(), text = node.textContent, i;
+    var range = document.createRange(), text = node.textContent, i, rects = [];
     for (i = 0; i < text.length; i++) {
       if (/\s/.test(text[i])) continue;
       range.setStart(node, i); range.setEnd(node, i + 1);
       var rc = range.getBoundingClientRect(), m = g.measureText(text[i]);
       g.fillText(text[i], rc.left - box.left, rc.top - box.top + pad + m.fontBoundingBoxAscent);
+      rects.push([rc.left - box.left, rc.right - box.left, rc.top - box.top + pad, rc.bottom - box.top + pad, i]);
     }
     var d = g.getImageData(0, 0, w, hh).data, seen = new Uint8Array(w * hh), stack = [], dots = [];
     for (var q0 = 0; q0 < w * hh; q0++) {
@@ -1848,6 +1850,10 @@ footer a:hover{text-decoration:underline}
       if (n > 2) { var cx = sx / n + 0.5, cy = sy / n + 0.5; dots.push({ hx: cx, hy: cy, x: cx, y: cy, vx: 0, vy: 0, tx: cx, ty: cy, sq: 0, moving: false }); }
     }
     if (dots.length < 6) return null;
+    dots.forEach(function (dt) {             // the letter each dot sits in
+      dt.ch = -1; dt.mode = 0;
+      rects.forEach(function (rc) { if (dt.hx >= rc[0] - 2 && dt.hx <= rc[1] + 2 && dt.hy >= rc[2] - fs * 0.3 && dt.hy <= rc[3] + fs * 0.3) dt.ch = rc[4]; });
+    });
     var nn = dots.map(function (a) {        // dot spacing: the typical gap to the nearest neighbour
       var best = 1e9; dots.forEach(function (b) { if (a !== b) best = Math.min(best, Math.hypot(a.hx - b.hx, a.hy - b.hy)); }); return best;
     }).sort(function (a, b) { return a - b; });
@@ -1859,68 +1865,68 @@ footer a:hover{text-decoration:underline}
     var color = cs.color;
     h.appendChild(out); h.classList.add('dotted');
     var st = { h: h, cv: out, g: out.getContext('2d'), dpr: dpr, w: w, hh: hh, dots: dots, pitch: pitch, r: pitch * 0.485,
-               color: color, next: performance.now() + rnd(1500, 3500), chain: null, vis: false, last: 0, acc: 0, dirty: true };
+               color: color, next: performance.now() + rnd(3000, 6000), chain: null, vis: false, last: 0, acc: 0, dirty: true };
     h._dh = st;
     return st;
   }
-  function dhNeighbours(st, a, exclude, ahead) {
-    return st.dots.filter(function (b) {
-      if (exclude.indexOf(b) >= 0) return false;
-      var dd = Math.hypot(b.hx - a.hx, b.hy - a.hy);
-      if (dd > st.pitch * 2.6) return false;
-      return !ahead || (b.hx - a.hx) * ahead[0] + (b.hy - a.hy) * ahead[1] >= 0;   // keep rolling forward
+  function dhPick(st, from, used) {         // a dot in a different letter, a little way across the word
+    var far = st.dots.filter(function (b) {
+      if (used.indexOf(b) >= 0 || used.some(function (u) { return u.ch === b.ch; })) return false;
+      var dd = Math.hypot(b.hx - from.hx, b.hy - from.hy);
+      return dd >= st.pitch * 3 && dd <= st.pitch * 14;
     });
+    if (!far.length) far = st.dots.filter(function (b) { return used.indexOf(b) < 0 && b.ch !== from.ch; });
+    return far.length ? far[(Math.random() * far.length) | 0] : null;
   }
-  function dhStartChain(st, now) {          // pick 2 to 4 neighbouring dots that will pass the knock along
-    var A = st.dots[(Math.random() * st.dots.length) | 0], list = [A], prev = null;
-    while (list.length < 4) {
-      var cur = list[list.length - 1], dir = prev ? [cur.hx - prev.hx, cur.hy - prev.hy] : null;
-      var c = dhNeighbours(st, cur, list, dir);
-      if (!c.length || (list.length >= 3 && Math.random() < 0.5)) break;
-      prev = cur; list.push(c[(Math.random() * c.length) | 0]);
-    }
-    // the last dot rolls back into the first one's gap, so keep that trip short too
-    while (list.length > 2 && Math.hypot(list[list.length - 1].hx - A.hx, list[list.length - 1].hy - A.hy) > st.pitch * 2.2) list.pop();
-    if (list.length < 2) { st.next = now + 1000; return; }
+  function dhStartChain(st, now) {
+    var A = st.dots[(Math.random() * st.dots.length) | 0], list = [A], B = dhPick(st, A, list);
+    if (!B) { st.next = now + 1500; return; }
+    list.push(B);
+    if (Math.random() < 0.3) { var C = dhPick(st, B, list); if (C) list.push(C); }   // sometimes one more round of tag
     var dest = list.map(function (dt, i) { var nx = list[(i + 1) % list.length]; return [nx.hx, nx.hy]; });
-    st.chain = { list: list, dest: dest, k: 0, t: now };
-    dhRelease(st, 0, null, now);
+    st.chain = { list: list, dest: dest, done: false };
+    dhLaunch(st, 0, now);
   }
-  function dhRelease(st, i, hitter, now) {
+  function dhLaunch(st, i, now) {            // pop out of the letter and arc over to the next spot
     var c = st.chain, dt = c.list[i], tgt = c.dest[i];
-    dt.moving = true; dt.tx = tgt[0]; dt.ty = tgt[1];
-    var ux = tgt[0] - dt.x, uy = tgt[1] - dt.y, ul = Math.hypot(ux, uy) || 1;
-    ux /= ul; uy /= ul;
-    var side = Math.random() < 0.5 ? -1 : 1;   // a little sideways roll, so paths curve past each other
-    if (hitter) {                               // the knock: momentum passes over, the hitter bounces back
-      var sp = Math.hypot(hitter.vx, hitter.vy);
-      dt.vx += ux * sp * 0.9 - uy * side * sp * 0.35; dt.vy += uy * sp * 0.9 + ux * side * sp * 0.35;
-      hitter.vx *= -0.25; hitter.vy *= -0.25; dt.sq = 1; hitter.sq = 0.7;
-    } else { dt.vx += ux * 0.35 - uy * side * 0.25; dt.vy += uy * 0.35 + ux * side * 0.25; }
-    c.k = i; c.t = now;
+    var dx = tgt[0] - dt.x, dy = tgt[1] - dt.y, dist = Math.hypot(dx, dy);
+    var lift = Math.max(st.pitch * 1.6, dist * 0.32), side = rnd(-0.12, 0.12) * dist;
+    dt.mode = 2; dt.i = i; dt.t0 = now; dt.dur = Math.max(800, Math.min(1900, 650 + dist * 5));
+    dt.p0 = [dt.x, dt.y]; dt.p1 = tgt;
+    dt.pc = [(dt.x + tgt[0]) / 2 - dy / (dist || 1) * side, Math.min(dt.y, tgt[1]) - lift];
+    dt.sq = 1;
   }
   function dhStep(st, now) {
-    var c = st.chain, dots = st.dots, i, dt, settled = true;
+    var c = st.chain, dots = st.dots, i, dt, busy = false;
     if (!c && now > st.next && !reduce) dhStartChain(st, now);
     c = st.chain;
-    if (c && c.k < c.list.length - 1) {         // touching the next dot (or taking too long) passes the knock on
-      var a = c.list[c.k], b = c.list[c.k + 1];
-      if (Math.hypot(a.x - b.x, a.y - b.y) < st.r * 1.9 || now - c.t > 1600) dhRelease(st, c.k + 1, a, now);
-    }
     for (i = 0; i < dots.length; i++) {
       dt = dots[i];
-      if (!dt.moving) continue;
-      dt.vx = (dt.vx + (dt.tx - dt.x) * DH_K) * DH_DAMP; dt.vy = (dt.vy + (dt.ty - dt.y) * DH_K) * DH_DAMP;
-      dt.x += dt.vx; dt.y += dt.vy; dt.sq *= 0.9;
-      if (Math.abs(dt.tx - dt.x) + Math.abs(dt.ty - dt.y) < 0.15 && Math.abs(dt.vx) + Math.abs(dt.vy) < 0.03) {
-        dt.x = dt.tx; dt.y = dt.ty; dt.vx = dt.vy = 0; dt.moving = false;
-      } else settled = false;
+      if (dt.mode === 2) {                    // in flight along a smooth arc
+        var t = Math.min(1, (now - dt.t0) / dt.dur), e = 0.5 - 0.5 * Math.cos(Math.PI * t), u = 1 - e;
+        var nx = u * u * dt.p0[0] + 2 * u * e * dt.pc[0] + e * e * dt.p1[0], ny = u * u * dt.p0[1] + 2 * u * e * dt.pc[1] + e * e * dt.p1[1];
+        dt.vx = nx - dt.x; dt.vy = ny - dt.y; dt.x = nx; dt.y = ny; dt.sq = Math.max(dt.sq * 0.94, 0.18);
+        busy = true;
+        if (t >= 1) {                          // landing: bounce into place and knock the dot that was there
+          dt.mode = 1; dt.tx = dt.p1[0]; dt.ty = dt.p1[1]; dt.vx *= 1.4; dt.vy *= 1.4; dt.sq = 1;
+          if (dt.i < c.list.length - 1) dhLaunch(st, dt.i + 1, now);
+          else c.done = true;
+        }
+      } else if (dt.mode === 1) {             // springing home, with plenty of bounce
+        var land = !!c;
+        var K = land ? DH_LAND_K : DH_K, DMP = land ? DH_LAND_DAMP : DH_DAMP;
+        dt.vx = (dt.vx + (dt.tx - dt.x) * K) * DMP; dt.vy = (dt.vy + (dt.ty - dt.y) * K) * DMP;
+        dt.x += dt.vx; dt.y += dt.vy; dt.sq *= 0.9;
+        if (Math.abs(dt.tx - dt.x) + Math.abs(dt.ty - dt.y) < 0.15 && Math.abs(dt.vx) + Math.abs(dt.vy) < 0.03) {
+          dt.x = dt.tx; dt.y = dt.ty; dt.vx = dt.vy = 0; dt.mode = 0; dt.moving = false;
+        } else busy = true;
+      }
     }
-    if (c && c.k === c.list.length - 1 && settled) {   // everyone home: the dots have new homes
+    if (c && c.done && !busy) {               // tag's over: everyone keeps their new spot
       c.list.forEach(function (d2) { d2.hx = d2.tx; d2.hy = d2.ty; });
-      st.chain = null; st.next = now + rnd(1800, 4200);
+      st.chain = null; st.next = now + rnd(4000, 8000);
     }
-    if (!settled) st.dirty = true;
+    if (busy) st.dirty = true;
   }
   function dhDraw(st) {
     var g = st.g, r = st.r;
@@ -1938,10 +1944,10 @@ footer a:hover{text-decoration:underline}
   }
   function dhIntro(st) {                       // dots fly in from a scatter and bounce into the word
     if (reduce) return;
-    st.chain = null; st.next = performance.now() + rnd(2500, 4000);
+    st.chain = null; st.next = performance.now() + rnd(3500, 6000);
     st.dots.forEach(function (dt) {
       dt.x = dt.hx + rnd(-1, 1) * st.pitch * 3; dt.y = dt.hy + rnd(-1, 1) * st.pitch * 2;
-      dt.tx = dt.hx; dt.ty = dt.hy; dt.vx = dt.vy = 0; dt.moving = true;
+      dt.tx = dt.hx; dt.ty = dt.hy; dt.vx = dt.vy = 0; dt.moving = true; dt.mode = 1;
     });
     st.dirty = true; dhKick();
   }
