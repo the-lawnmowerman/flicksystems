@@ -701,7 +701,7 @@ footer a:hover{text-decoration:underline}
   // viewfinder hump over an off-centre E-mount. The silhouette is extruded to the body's
   // depth, details sit on the front face, and a lens barrel sticks out toward you.
   function initCamera(now) {
-    var f = fit(1.33), W = f.w * 0.6, k = 0, e, i;
+    var f = fit(1.33), W = f.w * 0.5, k = 0, e, i;
     function sc(segs) { return segs.map(function (s) { return [s[0] * W, s[1] * W, s[2] * W, s[3] * W]; }); }
     var T = -0.187, B = 0.377, G = -0.29, mx = 0.03, my = 0.105, rc = 0.035;
     var body = [[G, T, mx - 0.2, T], [mx - 0.2, T, mx - 0.115, -0.37], [mx - 0.115, -0.377, mx + 0.115, -0.377],
@@ -722,33 +722,142 @@ footer a:hover{text-decoration:underline}
     for (var x = -0.27; x < -0.19; x += 0.016) dial.push([x, -0.232, x, T]);
     var lugs = circleSegs(0.513, -0.12, 0.014, 10).concat(circleSegs(-0.513, -0.12, 0.014, 10));
     var release = circleSegs(mx + 0.265, 0.17, 0.02, 14);
-    var mount = circleSegs(mx, my, 0.235, 80);
     var lamp = circleSegs(-0.245, -0.115, 0.02, 14);
-    var D = 0.36, zf = -D / 2 * W, zb = D / 2 * W, zl = zf - 0.3 * W;   // body front, back, lens front
-    var nSil = (N * 0.34) | 0, nDet = (N * 0.12) | 0, nBar = (N * 0.14) | 0, nLamp = (N * 0.03) | 0, nIris = (N * 0.1) | 0, nBlade = (N * 0.08) | 0;
+    var D = 0.36, zf = -D / 2 * W, zb = D / 2 * W, zl = zf - 0.42 * W;  // body front, back, cine lens front
+    // dots along 3D segments [x1, y1, z1, x2, y2, z2] given in body widths; r is the role (AR)
+    function seg3(list, count, rgb, jit, r) {
+      var tot = 0, cum = [];
+      list.forEach(function (g) { tot += Math.hypot(g[3] - g[0], g[4] - g[1], g[5] - g[2]); cum.push(tot); });
+      for (var stop = Math.min(N, k + count); k < stop; k++) {
+        var u = Math.random() * tot, j = 0;
+        while (cum[j] < u) j++;
+        var g = list[j], t = Math.random();
+        AX[k] = (g[0] + (g[3] - g[0]) * t) * W + rnd(-jit, jit); AY[k] = (g[1] + (g[4] - g[1]) * t) * W + rnd(-jit, jit);
+        AZ[k] = (g[2] + (g[5] - g[2]) * t) * W + rnd(-jit, jit); AR[k] = r || 0; setRGB(k, rgb[0], rgb[1], rgb[2]);
+      }
+    }
+    function box3(x1, y1, z1, x2, y2, z2) {
+      return [[x1, y1, z1, x2, y1, z1], [x2, y1, z1, x2, y2, z1], [x2, y2, z1, x1, y2, z1], [x1, y2, z1, x1, y1, z1],
+              [x1, y1, z2, x2, y1, z2], [x2, y1, z2, x2, y2, z2], [x2, y2, z2, x1, y2, z2], [x1, y2, z2, x1, y1, z2],
+              [x1, y1, z1, x1, y1, z2], [x2, y1, z1, x2, y1, z2], [x2, y2, z1, x2, y2, z2], [x1, y2, z1, x1, y2, z2]];
+    }
+    function ringZ(cx, cy, z, r, n) {       // a circle facing you
+      var o = []; for (var q = 0; q < n; q++) { var p0 = q / n * 6.283, p1 = (q + 1) / n * 6.283; o.push([cx + Math.cos(p0) * r, cy + Math.sin(p0) * r, z, cx + Math.cos(p1) * r, cy + Math.sin(p1) * r, z]); } return o;
+    }
+    function ringX(x, cy, cz, r, n) {       // a circle on a side face
+      var o = []; for (var q = 0; q < n; q++) { var p0 = q / n * 6.283, p1 = (q + 1) / n * 6.283; o.push([x, cy + Math.cos(p0) * r, cz + Math.sin(p0) * r, x, cy + Math.cos(p1) * r, cz + Math.sin(p1) * r]); } return o;
+    }
+    function curve3(pts, n) {               // a smooth line through control points (quadratic B-spline)
+      var o = [], prev = null;
+      for (var q = 0; q <= n; q++) {
+        var t = q / n * (pts.length - 2), i0 = Math.min(pts.length - 3, Math.floor(t)), u = t - i0;
+        var A0 = pts[i0], B0 = pts[i0 + 1], C0 = pts[i0 + 2], w0 = (1 - u) * (1 - u) / 2, w1 = 0.5 + u * (1 - u), w2 = u * u / 2;
+        var P = [0, 1, 2].map(function (d) { return (i0 === 0 && u === 0) ? A0[d] : A0[d] * w0 + B0[d] * w1 + C0[d] * w2; });
+        if (prev) o.push(prev.concat(P)); prev = P;
+      }
+      return o;
+    }
+    var WHITE = [0.94, 0.94, 0.93], STEEL = [0.66, 0.7, 0.78], DARK = [0.5, 0.52, 0.58];
+    var mx3 = mx, my3 = my, zfu = -D / 2, zlu = zfu - 0.42;
+
+    // the body (as before, a touch lighter on dots so the rig can have its share)
+    var nSil = (N * 0.2) | 0, nDet = (N * 0.05) | 0;
     onSegments(sc(body.concat(grip, shoe)), 0, nSil, 1.1);
     for (; k < nSil; k++) {                 // silhouette: front edge, back edge and the walls between
       var rr = Math.random();
-      AZ[k] = rr < 0.42 ? zf : rr < 0.72 ? zb : rnd(zf, zb); AR[k] = 0; setRGB(k, 0.94, 0.94, 0.93);
+      AZ[k] = rr < 0.42 ? zf : rr < 0.72 ? zb : rnd(zf, zb); AR[k] = 0; setRGB(k, WHITE[0], WHITE[1], WHITE[2]);
     }
-    onSegments(sc(shutter.concat(dial, lugs, release, mount)), k, nDet, 1);
-    for (e = k + nDet; k < e; k++) { AZ[k] = zf; AR[k] = 0; setRGB(k, 0.94, 0.94, 0.93); }
-    for (e = k + nBar; k < e; k++) {        // lens barrel: front lip, focus ring and its length
-      var a = rnd(0, 6.283), pick = Math.random(), rad, z;
-      if (pick < 0.4) { rad = 0.205; z = zl; }
-      else if (pick < 0.62) { rad = 0.215; z = zf + (zl - zf) * rnd(0.45, 0.6); }
-      else { a = ((Math.random() * 10) | 0) / 10 * 6.283; rad = 0.21; z = rnd(zl, zf); }
-      AX[k] = (mx + Math.cos(a) * rad) * W; AY[k] = (my + Math.sin(a) * rad) * W; AZ[k] = z; AR[k] = 0;
-      setRGB(k, 0.8, 0.82, 0.88);
+    onSegments(sc(shutter.concat(dial, lugs, release)), k, nDet, 1);
+    for (e = k + nDet; k < e; k++) { AZ[k] = zf; AR[k] = 0; setRGB(k, WHITE[0], WHITE[1], WHITE[2]); }
+
+    // cine lens: hood lip, barrel, a toothed focus gear, an iris gear and a red index band
+    var lens = ringZ(mx3, my3, zlu, 0.235, 44).concat(ringZ(mx3, my3, zlu, 0.258, 44), ringZ(mx3, my3, zlu + 0.035, 0.258, 44), ringZ(mx3, my3, zfu - 0.01, 0.226, 40));
+    for (i = 0; i < 16; i++) { var la = i / 16 * 6.283; lens.push([mx3 + Math.cos(la) * 0.228, my3 + Math.sin(la) * 0.228, zlu + 0.035, mx3 + Math.cos(la) * 0.228, my3 + Math.sin(la) * 0.228, zfu - 0.01]); }
+    var gears = ringZ(mx3, my3, zlu + 0.17, 0.252, 44).concat(ringZ(mx3, my3, zlu + 0.24, 0.252, 44), ringZ(mx3, my3, zfu - 0.09, 0.242, 40), ringZ(mx3, my3, zfu - 0.05, 0.242, 40));
+    for (i = 0; i < 64; i++) { var ga = i / 64 * 6.283; gears.push([mx3 + Math.cos(ga) * 0.256, my3 + Math.sin(ga) * 0.256, zlu + 0.17, mx3 + Math.cos(ga) * 0.256, my3 + Math.sin(ga) * 0.256, zlu + 0.24]); }
+    for (i = 0; i < 40; i++) { var gb = i / 40 * 6.283; gears.push([mx3 + Math.cos(gb) * 0.245, my3 + Math.sin(gb) * 0.245, zfu - 0.09, mx3 + Math.cos(gb) * 0.245, my3 + Math.sin(gb) * 0.245, zfu - 0.05]); }
+    seg3(lens, (N * 0.08) | 0, [0.86, 0.88, 0.94], 0.6);
+    seg3(gears, (N * 0.05) | 0, STEEL, 0.4);
+    seg3(ringZ(mx3, my3, zlu + 0.11, 0.232, 40), (N * 0.012) | 0, [1, 0.25, 0.28], 0.4);
+
+    // cage: top plate over the hump, side plate with holes, baseplate
+    var cage = box3(-0.4, -0.415, -0.2, 0.44, -0.385, 0.2).concat(box3(0.51, -0.26, -0.2, 0.575, 0.45, 0.2), box3(-0.5, 0.385, -0.2, 0.575, 0.45, 0.2));
+    for (i = 0; i < 4; i++) cage = cage.concat(ringX(0.575, -0.12 + i * 0.13, 0, 0.028, 8));
+    cage.push([0.44, -0.4, -0.2, 0.51, -0.26, -0.2], [0.44, -0.4, 0.2, 0.51, -0.26, 0.2]);
+    seg3(cage, (N * 0.075) | 0, STEEL, 0.5);
+
+    // top handle: the XLR audio module, its knobs and a carry arch
+    var top = box3(-0.27, -0.64, -0.17, 0.25, -0.415, 0.18);
+    top = top.concat(ringZ(-0.14, -0.53, -0.17, 0.034, 10), ringZ(-0.02, -0.53, -0.17, 0.034, 10), ringZ(0.12, -0.53, -0.17, 0.022, 8));
+    for (i = 0; i < 5; i++) top.push([-0.22 + i * 0.022, -0.6, -0.17, -0.22 + i * 0.022, -0.46, -0.17]);   // grille
+    var arch = [];
+    for (i = 0; i <= 12; i++) arch.push([-0.2 + i / 12 * 0.4, -0.64 - Math.sin(i / 12 * Math.PI) * 0.12, 0.05]);
+    top = top.concat(curve3(arch, 14));
+    seg3(top, (N * 0.07) | 0, WHITE, 0.6);
+
+    // shotgun mic in its clamp, with an XLR cable back into the module
+    var MX = -0.4, MY = -0.66, mic = [];
+    for (i = 0; i < 8; i++) { var ma = i / 8 * 6.283; mic.push([MX + Math.cos(ma) * 0.042, MY + Math.sin(ma) * 0.042, 0.16, MX + Math.cos(ma) * 0.042, MY + Math.sin(ma) * 0.042, -0.24]); }
+    mic = mic.concat(ringZ(MX, MY, 0.16, 0.042, 10), ringZ(MX, MY, -0.02, 0.07, 12), ringZ(MX, MY, -0.12, 0.07, 12),
+                     [[MX + 0.07, MY, -0.07, -0.27, -0.56, -0.07]], curve3([[MX, MY, 0.16], [MX, MY + 0.04, 0.3], [-0.3, -0.52, 0.26], [-0.27, -0.5, 0.12]], 12));
+    seg3(mic, (N * 0.025) | 0, DARK, 0.5);
+    // the fur windscreen: a soft capsule of loose dots of mixed sizes
+    var nFur = (N * 0.08) | 0, fz0 = -0.86, fz1 = -0.2, fc = (fz0 + fz1) / 2, fh = (fz1 - fz0) / 2;
+    for (e = Math.min(N, k + nFur); k < e; k++) {
+      var zz = rnd(fz0, fz1), shp = Math.sqrt(Math.max(0, 1 - Math.pow((zz - fc) / fh, 6))), fa = rnd(0, 6.283);
+      var fr = 0.12 * shp * (0.78 + Math.pow(Math.random(), 0.5) * 0.45);
+      AX[k] = (MX + Math.cos(fa) * fr) * W; AY[k] = (MY + Math.sin(fa) * fr) * W; AZ[k] = zz * W;
+      AR[k] = 7; AU[k] = rnd(0.45, 1.15); var fg = rnd(0.62, 0.95); setRGB(k, fg, fg, fg * 1.02);
     }
-    onSegments(sc(lamp), k, nLamp, 0.8);
-    for (e = k + nLamp; k < e; k++) { AZ[k] = zf; AR[k] = 4; setRGB(k, 1, 0.78, 0.55); }
-    for (e = k + nIris; k < e; k++) { AR[k] = 1; AU[k] = Math.random() * 6; setRGB(k, 0.82, 0.88, 1); }
-    for (e = k + nBlade; k < e; k++) { AR[k] = 2; AU[k] = Math.random(); AG[k] = (Math.random() * 6) | 0; setRGB(k, 0.7, 0.76, 0.9); }
+
+    // articulating arm up to the monitor
+    var arm = [[0.4, -0.415, 0.02, 0.6, -0.5, 0.06], [0.42, -0.4, 0.06, 0.62, -0.49, 0.1], [0.6, -0.5, 0.06, 0.63, -0.58, 0.1]];
+    arm = arm.concat(ringZ(0.61, -0.5, 0.08, 0.035, 10), ringZ(0.4, -0.41, 0.04, 0.03, 10));
+    seg3(arm, (N * 0.025) | 0, STEEL, 0.6);
+
+    // monitor: frame and mounting holes, a battery on the back facing you
+    var MZ0 = 0.08, MZ1 = 0.17, mon = box3(0.3, -1.0, MZ0, 0.95, -0.58, MZ1);
+    for (i = 0; i < 6; i++) mon = mon.concat(ringZ(0.38 + i * 0.1, -0.97, MZ0, 0.012, 6));
+    mon.push([0.95, -0.92, 0.12, 0.99, -0.92, 0.12], [0.95, -0.66, 0.12, 0.99, -0.66, 0.12]);   // side ports
+    seg3(mon, (N * 0.055) | 0, WHITE, 0.5);
+    var batt = box3(0.45, -0.9, -0.03, 0.78, -0.66, MZ0);
+    batt.push([0.48, -0.86, -0.03, 0.75, -0.86, -0.03]);
+    seg3(batt, (N * 0.03) | 0, [0.8, 0.82, 0.86], 0.5);
+    // the screen on the operator's side: a glowing live view, and a REC light
+    var nScr = (N * 0.04) | 0;
+    for (e = Math.min(N, k + nScr); k < e; k++) {
+      var sxu = rnd(0.34, 0.91), syu = rnd(-0.96, -0.62), gl2 = 0.55 + 0.45 * Math.sin((syu + 0.96) * 9);
+      AX[k] = sxu * W; AY[k] = syu * W; AZ[k] = (MZ1 + 0.005) * W; AR[k] = 5;
+      setRGB(k, 0.3 * gl2, 0.65 * gl2 + 0.2, 1);
+    }
+    for (e = Math.min(N, k + ((N * 0.004) | 0)); k < e; k++) {
+      var ra = rnd(0, 6.283), rr2 = Math.sqrt(Math.random()) * 0.018;
+      AX[k] = (0.38 + Math.cos(ra) * rr2) * W; AY[k] = (-0.93 + Math.sin(ra) * rr2) * W; AZ[k] = (MZ1 + 0.01) * W; AR[k] = 6; setRGB(k, 1, 0.2, 0.22);
+    }
+
+    // the wooden side handle and its bracket, with a grain that ripples down it
+    seg3(box3(0.575, -0.13, -0.05, 0.75, -0.07, 0.05), (N * 0.012) | 0, STEEL, 0.4);
+    var nWood = (N * 0.05) | 0;
+    for (e = Math.min(N, k + nWood); k < e; k++) {
+      var wy = rnd(-0.17, 0.5), wa = rnd(0, 6.283), cap = wy < -0.15 || wy > 0.48;
+      var wr = cap ? Math.sqrt(Math.random()) : 1;
+      AX[k] = (0.82 + Math.cos(wa) * 0.07 * wr) * W; AY[k] = wy * W; AZ[k] = (Math.sin(wa) * 0.085 * wr) * W; AR[k] = 0;
+      var grain = 0.78 + 0.22 * Math.sin(wy * 70 + Math.sin(wa * 3) * 1.6);
+      setRGB(k, 0.82 * grain, 0.5 * grain, 0.3 * grain);
+    }
+
+    // the cable from the monitor down to the handle
+    seg3(curve3([[0.95, -0.62, 0.13], [1.12, -0.45, 0.12], [1.08, -0.1, 0.06], [0.95, 0.05, 0.02], [0.84, -0.17, 0]], 30), (N * 0.014) | 0, DARK, 0.4);
+
+    onSegments(sc(lamp), k, (N * 0.02) | 0, 0.8);
+    for (e = k + ((N * 0.02) | 0); k < e; k++) { AZ[k] = zf; AR[k] = 4; setRGB(k, 1, 0.78, 0.55); }
+    for (e = k + ((N * 0.05) | 0); k < e; k++) { AR[k] = 1; AU[k] = Math.random() * 6; setRGB(k, 0.82, 0.88, 1); }
+    for (e = k + ((N * 0.04) | 0); k < e; k++) { AR[k] = 2; AU[k] = Math.random(); AG[k] = (Math.random() * 6) | 0; setRGB(k, 0.7, 0.76, 0.9); }
     for (; k < N; k++) { AR[k] = 3; AU[k] = Math.random(); AG[k] = (Math.random() * 28) | 0; setRGB(k, 1, 0.94, 0.78); }
-    anim = { kind: 'camera', t0: now, cx: f.x + f.w / 2, cy: f.y + f.h / 2, mx: mx * W, my: my * W, R2: 0.165 * W,
-             zl: zl, zf: zf, w: W, fx: -0.245 * W, fy: -0.115 * W, F: W * 3, tall: false, zr: W * 0.55,
-             base: Math.max(1.6, Math.min(2.6, W / 200)), yw: -0.5, pt: -0.16 };
+    anim = { kind: 'camera', t0: now, cx: f.x + f.w / 2, cy: f.y + f.h / 2, mx: mx * W, my: my * W, R2: 0.18 * W,
+             zl: zl, zf: zf, w: W, fx: -0.245 * W, fy: -0.115 * W, F: W * 3, tall: false, zr: W * 1.5,
+             ox: 0.22 * W, oy: -0.28 * W, oz: -0.3 * W,   // the rig's middle, which it turns around
+             base: Math.max(1.9, Math.min(2.9, W / 140)), yw: -0.5, pt: -0.16 };
     var CM = anim;
     CM.click = function () { CM.t0 = performance.now() - 1275; };   // jump to the moment before the shutter fires
   }
@@ -770,9 +879,12 @@ footer a:hover{text-decoration:underline}
     var kickZ = close * A.w * 0.04, ri = A.R2 * (0.92 - 0.78 * close), rot = close * 0.9;
     for (var k = 0; k < N; k++) {
       var x, y, z, size = A.base, r = AR[k];
-      if (r === 0 || r === 4) {
+      if (r === 0 || r === 4 || r >= 5) {
         x = AX[k]; y = AY[k]; z = AZ[k];
         if (r === 4 && fl >= 0) size = A.base * (1 + 2.5 * (1 - fl));
+        else if (r === 5) size = A.base * (0.8 + (fl >= 0 ? 1.4 * (1 - fl) : 0));   // the monitor flashes with each shot
+        else if (r === 6) size = A.base * (Math.floor(now / 600) % 2 ? 1.6 : 0.2);    // REC blinks
+        else if (r === 7) size = A.base * AU[k];                                         // fur: loose, mixed sizes
       } else if (r === 1) {                 // the iris, at the front of the lens
         var u = AU[k], i = u | 0, f = u - i, a0 = i / 6 * 6.283 + rot, a1 = (i + 1) / 6 * 6.283 + rot;
         x = A.mx + (Math.cos(a0) + (Math.cos(a1) - Math.cos(a0)) * f) * ri;
@@ -789,7 +901,7 @@ footer a:hover{text-decoration:underline}
           size = A.base * 1.3 * (1 - fl);
         }
       }
-      put3(A, k, x, y, z + kickZ, size, undefined, A.zr);
+      put3(A, k, x - A.ox, y - A.oy, z + kickZ - A.oz, size, undefined, A.zr);
     }
   }
 
