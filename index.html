@@ -1814,7 +1814,7 @@ footer a:hover{text-decoration:underline}
      another letter and knocks a dot out of its place, landing there with a
      bounce. The knocked dot chases back across (sometimes via one more letter)
      and drops into the first dot's empty spot, so the word always reads the same. */
-  var DH = [], dhRaf = 0, DH_K = 0.0045, DH_DAMP = 0.965, DH_LAND_K = 0.016, DH_LAND_DAMP = 0.9;
+  var DH = [], dhRaf = 0, DH_K = 0.0045, DH_DAMP = 0.965, DH_LAND_K = 0.011, DH_LAND_DAMP = 0.88;
   function buildDotHeading(h) {
     var cs = getComputedStyle(h), fs = parseFloat(cs.fontSize), node = h.firstChild;
     if (!node || node.nodeType !== 3 || !fs) return null;
@@ -1847,7 +1847,7 @@ footer a:hover{text-decoration:underline}
         nb = q - w; if (qy > 0 && !seen[nb] && d[nb * 4 + 3] >= 110) { seen[nb] = 1; stack.push(nb); }
         nb = q + w; if (qy < hh - 1 && !seen[nb] && d[nb * 4 + 3] >= 110) { seen[nb] = 1; stack.push(nb); }
       }
-      if (n > 2) { var cx = sx / n + 0.5, cy = sy / n + 0.5; dots.push({ hx: cx, hy: cy, x: cx, y: cy, vx: 0, vy: 0, tx: cx, ty: cy, sq: 0, moving: false }); }
+      if (n > 2) { var cx = sx / n + 0.5, cy = sy / n + 0.5; dots.push({ hx: cx, hy: cy, x: cx, y: cy, vx: 0, vy: 0, tx: cx, ty: cy, moving: false }); }
     }
     if (dots.length < 6) return null;
     dots.forEach(function (dt) {             // the letter each dot sits in
@@ -1894,29 +1894,32 @@ footer a:hover{text-decoration:underline}
     dt.mode = 2; dt.i = i; dt.t0 = now; dt.dur = Math.max(800, Math.min(1900, 650 + dist * 5));
     dt.p0 = [dt.x, dt.y]; dt.p1 = tgt;
     dt.pc = [(dt.x + tgt[0]) / 2 - dy / (dist || 1) * side, Math.min(dt.y, tgt[1]) - lift];
-    dt.sq = 1;
+    dt.passed = false;
   }
   function dhStep(st, now) {
     var c = st.chain, dots = st.dots, i, dt, busy = false;
-    if (!c && now > st.next && !reduce) dhStartChain(st, now);
+    if (!c && now > st.next && !reduce && !st.busy) dhStartChain(st, now);   // only once every dot is home
     c = st.chain;
     for (i = 0; i < dots.length; i++) {
       dt = dots[i];
       if (dt.mode === 2) {                    // in flight along a smooth arc
         var t = Math.min(1, (now - dt.t0) / dt.dur), e = 0.5 - 0.5 * Math.cos(Math.PI * t), u = 1 - e;
         var nx = u * u * dt.p0[0] + 2 * u * e * dt.pc[0] + e * e * dt.p1[0], ny = u * u * dt.p0[1] + 2 * u * e * dt.pc[1] + e * e * dt.p1[1];
-        dt.vx = nx - dt.x; dt.vy = ny - dt.y; dt.x = nx; dt.y = ny; dt.sq = Math.max(dt.sq * 0.94, 0.18);
+        dt.vx = nx - dt.x; dt.vy = ny - dt.y; dt.x = nx; dt.y = ny;
         busy = true;
-        if (t >= 1) {                          // landing: bounce into place and knock the dot that was there
-          dt.mode = 1; dt.tx = dt.p1[0]; dt.ty = dt.p1[1]; dt.vx *= 1.4; dt.vy *= 1.4; dt.sq = 1;
+        if (t >= 0.85 && !dt.passed) {         // just before it lands, the dot sitting there gets bumped out
+          dt.passed = true;
           if (dt.i < c.list.length - 1) dhLaunch(st, dt.i + 1, now);
-          else c.done = true;
+        }
+        if (t >= 1) {                          // landing: one soft settle into place
+          dt.mode = 1; dt.tx = dt.p1[0]; dt.ty = dt.p1[1]; dt.vx *= 0.5; dt.vy *= 0.5;
+          if (dt.i === c.list.length - 1) c.done = true;
         }
       } else if (dt.mode === 1) {             // springing home, with plenty of bounce
         var land = !!c;
         var K = land ? DH_LAND_K : DH_K, DMP = land ? DH_LAND_DAMP : DH_DAMP;
         dt.vx = (dt.vx + (dt.tx - dt.x) * K) * DMP; dt.vy = (dt.vy + (dt.ty - dt.y) * K) * DMP;
-        dt.x += dt.vx; dt.y += dt.vy; dt.sq *= 0.9;
+        dt.x += dt.vx; dt.y += dt.vy;
         if (Math.abs(dt.tx - dt.x) + Math.abs(dt.ty - dt.y) < 0.15 && Math.abs(dt.vx) + Math.abs(dt.vy) < 0.03) {
           dt.x = dt.tx; dt.y = dt.ty; dt.vx = dt.vy = 0; dt.mode = 0; dt.moving = false;
         } else busy = true;
@@ -1926,19 +1929,14 @@ footer a:hover{text-decoration:underline}
       c.list.forEach(function (d2) { d2.hx = d2.tx; d2.hy = d2.ty; });
       st.chain = null; st.next = now + rnd(4000, 8000);
     }
+    st.busy = busy;
     if (busy) st.dirty = true;
   }
   function dhDraw(st) {
     var g = st.g, r = st.r;
     g.setTransform(st.dpr, 0, 0, st.dpr, 0, 0); g.clearRect(0, 0, st.w, st.hh); g.fillStyle = st.color;
     g.beginPath();
-    st.dots.forEach(function (dt) {
-      if (dt.sq > 0.02) {                       // squash along the way it's moving, just after a knock
-        var a = Math.atan2(dt.vy, dt.vx), e = 0.22 * dt.sq;
-        g.moveTo(dt.x + Math.cos(a) * r * (1 + e), dt.y + Math.sin(a) * r * (1 + e));
-        g.ellipse(dt.x, dt.y, r * (1 + e), r * (1 - e), a, 0, 6.283);
-      } else { g.moveTo(dt.x + r, dt.y); g.arc(dt.x, dt.y, r, 0, 6.283); }
-    });
+    st.dots.forEach(function (dt) { g.moveTo(dt.x + r, dt.y); g.arc(dt.x, dt.y, r, 0, 6.283); });
     g.fill();
     st.dirty = false;
   }
