@@ -296,8 +296,8 @@ footer a:hover{text-decoration:underline}
     })();
   }
   var CH_HINT = coarse
-    ? { chaos: 'Tap to blast the shapes apart.', photography: 'Tap to take a shot.', systems: 'Tap for the next project.' }
-    : { chaos: 'Knock the shapes around with your cursor. Click to blast them apart.',
+    ? { chaos: 'Tap the shapes to shatter them.', photography: 'Tap to take a shot.', systems: 'Tap for the next project.' }
+    : { chaos: 'Click the shapes to shatter them. Chain hits for a combo.',
         photography: 'Move to aim the camera. Click to take a shot.',
         systems: 'Move left or right to spin through the projects. Click for the next one.' };
   hint(HINT);
@@ -357,6 +357,7 @@ footer a:hover{text-decoration:underline}
   var tr = new Float32Array(N), tg = new Float32Array(N), tb = new Float32Array(N);
   var sz = new Float32Array(N), ts = new Float32Array(N);
   var wake = new Float64Array(N), ph = new Float32Array(N), sp = new Float32Array(N);
+  var fall = new Float32Array(N);   // gravity on a dot while it flies free (shatter debris)
   var lumBuf = new Float32Array(N), bestBuf = new Int32Array(N);   // brightness, and where in the frame it came from
   var cdf = null;
 
@@ -526,7 +527,7 @@ footer a:hover{text-decoration:underline}
         x: box.x + rnd(r, box.w - r), y: box.y + rnd(r, box.h - r), vx: Math.cos(dir) * spd, vy: Math.sin(dir) * spd,
         ax: rnd(0, 6.283), ay: rnd(0, 6.283), az: rnd(0, 6.283),
         wx: rnd(-0.0018, 0.0018), wy: rnd(-0.0018, 0.0018), wz: rnd(-0.0012, 0.0012),
-        zp: rnd(0, 6.283), zw: rnd(0.0004, 0.0009), z: 0, R: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        zp: rnd(0, 6.283), zw: rnd(0.0004, 0.0009), z: 0, R: [1, 0, 0, 0, 1, 0, 0, 0, 1], g: 1, dead: 0, born: 0,
         col: CHAOS_COLORS[i % CHAOS_COLORS.length]
       });
       shapes[i].w = r * (shapes[i].filled ? 1.7 : 1); wsum += shapes[i].w;
@@ -544,13 +545,79 @@ footer a:hover{text-decoration:underline}
     anim = { kind: 'chaos', shapes: shapes, last: now, kick: now + 900, base: coarse ? 2 : 2.2, vmax: m * 0.0009,
              m: m, cx: box.x + box.w / 2, cy: box.y + box.h / 2, F: Math.max(box.w, box.h) * 1.4 };
     var CA = anim;
-    CA.click = function (x, y) {           // blast everything away from the click
+    CA.click = function (x, y, now) {      // a hit shatters the shape; a miss blasts everything away
+      var hit = chaosHit(CA, x, y);
+      if (hit) { shatter(CA, hit, now || performance.now()); return; }
+      GAME.combo = 0;
       CA.shapes.forEach(function (sh) {
         var dx = sh.x - x, dy = sh.y - y, d = Math.hypot(dx, dy) || 1, f = CA.vmax * (0.6 + 3.4 * Math.exp(-d / 420));
         sh.vx += dx / d * f; sh.vy += dy / d * f; sh.cap = CA.vmax * 4;
         sh.wx += rnd(-0.006, 0.006); sh.wy += rnd(-0.006, 0.006);
       });
     };
+  }
+  /* ---- the Chaos game: click a shape to shatter it ----
+     A hit splits the shape's dots into shards that fly off as pieces, flash
+     white-hot and burn out; a shockwave, score pop, shake and glitch go off with
+     it. About a second later the shape comes back as something new elsewhere,
+     and the debris streams across to rebuild it. Hits within 1.4 s chain a combo. */
+  var GAME = { score: 0, combo: 0, last: 0, best: 0 }, rings = [], pops = [];
+  try { GAME.best = +localStorage.getItem('flick-chaos-best') || 0; } catch (e) {}
+  function chaosScreen(A, sh) {               // where a shape sits on screen, and how big
+    var p = A.F / (A.F + sh.z);
+    return [A.cx + (sh.x - A.cx) * p, A.cy + (sh.y - A.cy) * p, sh.r * p * sh.g];
+  }
+  function chaosHit(A, x, y) {
+    var best = null, bestZ = 1e9;
+    A.shapes.forEach(function (sh) {
+      if (sh.dead) return;
+      var c = chaosScreen(A, sh), reach = c[2] * 1.12 + (coarse ? 16 : 6);
+      if (Math.hypot(x - c[0], y - c[1]) < reach && sh.z < bestZ) { best = sh; bestZ = sh.z; }   // nearest wins
+    });
+    return best;
+  }
+  function shatter(A, sh, now) {
+    var i = A.shapes.indexOf(sh), c = chaosScreen(A, sh), cx = c[0], cy = c[1], rad = c[2];
+    var nSh = 6 + ((Math.random() * 5) | 0), shards = [], q, k;
+    for (q = 0; q < nSh * 2; q++) {           // an inner ring of slow shards and an outer ring of fast ones
+      var a = (q % nSh + 0.5) / nSh * 6.283 + rnd(-0.3, 0.3), spd = q < nSh ? rnd(4, 8) : rnd(8, 15);
+      shards.push([Math.cos(a) * spd + sh.vx * 16, Math.sin(a) * spd + sh.vy * 16 - rnd(1, 3.5)]);
+    }
+    var back = now + 1100;
+    for (k = 0; k < N; k++) {
+      if (AG[k] !== i) continue;
+      var dx = px[k] - cx, dy = py[k] - cy, sec = (((Math.atan2(dy, dx) / 6.283) + 1) % 1 * nSh) | 0;
+      var v = shards[sec + (Math.hypot(dx, dy) > rad * 0.55 ? nSh : 0)];
+      vx[k] = v[0] + rnd(-0.8, 0.8); vy[k] = v[1] + rnd(-0.8, 0.8);
+      wake[k] = back + rnd(0, 280); fall[k] = 0.24;
+      cr[k] = cg[k] = cb[k] = 1.7; sz[k] *= 1.9;   // white-hot flash, cooling back to the shape's colour
+    }
+    sh.dead = now; sh.back = back;
+    GAME.combo = now - GAME.last < 1400 ? GAME.combo + 1 : 1; GAME.last = now;
+    var pts = (sh.r < A.m * 0.09 ? 150 : 100) * GAME.combo;
+    GAME.score += pts;
+    if (GAME.score > GAME.best) { GAME.best = GAME.score; try { localStorage.setItem('flick-chaos-best', GAME.best); } catch (e) {} }
+    rings.push({ x: cx, y: cy, r0: rad, t0: now, col: sh.col });
+    pops.push({ x: cx, y: cy - rad * 0.4, t0: now, col: sh.col, txt: '+' + pts + (GAME.combo > 1 ? '  x' + GAME.combo : '') });
+    glitchNow(1.1 + Math.min(1.4, GAME.combo * 0.25));
+    SHAKE.until = now + 240; SHAKE.amp = Math.min(16, 5 + GAME.combo * 2);
+    hint('SCORE ' + GAME.score + (GAME.combo > 1 ? '  //  x' + GAME.combo + ' COMBO' : '') + '  //  BEST ' + GAME.best);
+  }
+  function respawn(A, sh, now) {              // back as a new shape, somewhere else
+    var i = A.shapes.indexOf(sh), k, tries = 0;
+    sh.kind = (Math.random() * 3) | 0; sh.col = CHAOS_COLORS[(Math.random() * CHAOS_COLORS.length) | 0];
+    sh.sc = sh.r * SHAPE_SCALE[sh.kind];
+    do {
+      sh.x = box.x + rnd(sh.r, box.w - sh.r); sh.y = box.y + rnd(sh.r, box.h - sh.r); tries++;
+    } while (tries < 12 && ptr.on && Math.hypot(sh.x - ptr.x, sh.y - ptr.y) < sh.r * 3);
+    var dir = rnd(0, 6.283); sh.vx = Math.cos(dir) * A.vmax * 0.6; sh.vy = Math.sin(dir) * A.vmax * 0.6; sh.cap = A.vmax;
+    for (k = 0; k < N; k++) {
+      if (AG[k] !== i) continue;
+      var p3 = shape3(sh.kind, sh.filled);
+      AX[k] = p3[0]; AY[k] = p3[1]; AZ[k] = p3[2];
+      setRGB(k, sh.col[0], sh.col[1], sh.col[2]);
+    }
+    sh.dead = 0; sh.born = now; sh.g = 0;
   }
   function updateChaos(now) {
     var A = anim, sh = A.shapes, dt = Math.min(40, now - A.last), i, j, s;
@@ -564,6 +631,7 @@ footer a:hover{text-decoration:underline}
     if (ptr.on && !overNav && !reduce) {   // the cursor knocks shapes away, at about the speed you swing it
       for (i = 0; i < sh.length; i++) {
         s = sh[i];
+        if (s.dead) continue;
         var bx = s.x - ptr.x, by = s.y - ptr.y, bd = Math.hypot(bx, by) || 1, reach = s.r + 24;
         if (bd < reach) {
           var ux = bx / bd, uy = by / bd;
@@ -576,6 +644,8 @@ footer a:hover{text-decoration:underline}
     ptr.vx *= 0.85; ptr.vy *= 0.85;
     for (i = 0; i < sh.length; i++) {
       s = sh[i];
+      if (s.dead && now > s.back) respawn(A, s, now);
+      s.g = s.born ? ease(clamp01((now - s.born) / 420)) : 1;   // a respawned shape grows in
       var sp = Math.hypot(s.vx, s.vy);
       s.cap = Math.max(A.vmax, (s.cap || A.vmax) * 0.985);    // a hit lets it fly fast, then it calms down
       if (sp > s.cap) { s.vx *= s.cap / sp; s.vy *= s.cap / sp; }
@@ -589,6 +659,7 @@ footer a:hover{text-decoration:underline}
     }
     for (i = 0; i < sh.length; i++) for (j = i + 1; j < sh.length; j++) {   // bump into each other
       var a = sh[i], b = sh[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1, min = (a.r + b.r) * 0.92;
+      if (a.dead || b.dead) continue;
       if (d < min) {
         var nx = dx / d, ny = dy / d, rel = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
         if (rel > 0) { a.vx -= rel * nx; a.vy -= rel * ny; b.vx += rel * nx; b.vy += rel * ny; a.wz += rnd(-0.002, 0.002); b.wz += rnd(-0.002, 0.002); }
@@ -604,8 +675,9 @@ footer a:hover{text-decoration:underline}
     }
     for (var k = 0; k < N; k++) {
       s = sh[AG[k]];
-      var R2 = s.R, lx = AX[k], ly = AY[k], lz = AZ[k];
-      var X = (R2[0] * lx + R2[1] * ly + R2[2] * lz) * s.sc, Y = (R2[3] * lx + R2[4] * ly + R2[5] * lz) * s.sc, Z = (R2[6] * lx + R2[7] * ly + R2[8] * lz) * s.sc;
+      if (s.dead) { ts[k] = now - s.dead < 360 ? A.base * 1.5 : 0; continue; }   // debris burns out
+      var R2 = s.R, lx = AX[k], ly = AY[k], lz = AZ[k], gs = s.sc * s.g;
+      var X = (R2[0] * lx + R2[1] * ly + R2[2] * lz) * gs, Y = (R2[3] * lx + R2[4] * ly + R2[5] * lz) * gs, Z = (R2[6] * lx + R2[7] * ly + R2[8] * lz) * gs;
       var wz = s.z + Z, p = A.F / (A.F + wz);
       tx[k] = A.cx + (s.x - A.cx + X) * p; ty[k] = A.cy + (s.y - A.cy + Y) * p;
       var near = clamp01(0.5 - Z / (s.sc * 2.4)), lum = 0.3 + 0.7 * near;   // the side facing you is brighter
@@ -1340,6 +1412,7 @@ footer a:hover{text-decoration:underline}
 
   /* ---------------- glitch ---------------- */
   var GL = { next: 0, until: 0, split: 0, bands: [], on: false };
+  var SHAKE = { until: 0, amp: 0 };
   function glitchNow(strength) {           // a short burst; bigger strength = longer, wider tears
     if (reduce) return;
     var k = strength || 1, now = performance.now();
@@ -1420,6 +1493,23 @@ footer a:hover{text-decoration:underline}
         g.fillStyle = 'rgba(' + rgbB + ',0.95)'; g.fillText(str, bx + rnd(-20, 20), bd.y + bd.h * 0.5 - 6);
       }
     }
+    for (i = rings.length - 1; i >= 0; i--) {   // shatter shockwaves
+      var rg = rings[i], e2 = (now - rg.t0) / 460;
+      if (e2 >= 1) { rings.splice(i, 1); continue; }
+      g.strokeStyle = 'rgba(' + (rg.col[0] * 255 | 0) + ',' + (rg.col[1] * 255 | 0) + ',' + (rg.col[2] * 255 | 0) + ',' + (1 - e2).toFixed(2) + ')';
+      g.lineWidth = 4 * (1 - e2) + 0.6;
+      g.beginPath(); g.arc(rg.x, rg.y, rg.r0 * 0.8 + ease(e2) * 180, 0, 6.283); g.stroke();
+    }
+    if (pops.length) {                          // score pops float up and fade
+      g.font = '800 22px ui-monospace, Menlo, Consolas, monospace'; g.textAlign = 'center';
+      for (i = pops.length - 1; i >= 0; i--) {
+        var pp = pops[i], e3 = (now - pp.t0) / 950;
+        if (e3 >= 1) { pops.splice(i, 1); continue; }
+        g.fillStyle = 'rgba(' + (pp.col[0] * 255 | 0) + ',' + (pp.col[1] * 255 | 0) + ',' + (pp.col[2] * 255 | 0) + ',' + (1 - e3 * e3).toFixed(2) + ')';
+        g.fillText(pp.txt, pp.x, pp.y - ease(e3) * 46);
+      }
+      g.textAlign = 'start';
+    }
     if (bursts.length) {
       g.font = '700 13px ui-monospace, Menlo, Consolas, monospace';
       for (i = bursts.length - 1; i >= 0; i--) {
@@ -1448,7 +1538,9 @@ footer a:hover{text-decoration:underline}
     while (sig.length < 4) sig = '0' + sig;
     hudEl.textContent = 'root@flick:~$ ./run ' + (current === 'wordmark' ? 'flick' : current || 'idle') +
       '\npts ' + N + '  fps ' + Math.round(fpsS) + '  sig 0x' + sig +
-      '\n' + (GL.on ? '!! SIGNAL CORRUPT  ' : '') + bits.slice(0, 8) + ' ' + bits.slice(8);
+      '\n' + (current === 'chaos'
+        ? 'SCORE ' + GAME.score + '  x' + (now - GAME.last < 1400 ? GAME.combo : 0) + '  BEST ' + GAME.best
+        : (GL.on ? '!! SIGNAL CORRUPT  ' : '') + bits.slice(0, 8) + ' ' + bits.slice(8));
   }
 
   /* ---------------- loop ---------------- */
@@ -1475,7 +1567,7 @@ footer a:hover{text-decoration:underline}
     var KS = (src && src.k) || 0.055;
     for (var i = 0, o = 0; i < N; i++, o += 6) {
       var k = KS, w = now - wake[i];
-      if (w < 0) k = 0; else if (w < 220) k *= w / 220;
+      if (w < 0) { k = 0; if (fall[i]) vy[i] += fall[i]; } else { if (fall[i]) fall[i] = 0; if (w < 220) k *= w / 220; }
       var gx = tx[i], gy = ty[i], lm = 1;   // lm: bigger in front of the sphere, hidden behind it
       if (useP) {
         var dx = gx - ptr.x, dy = gy - ptr.y, d2 = dx * dx + dy * dy;
@@ -1530,15 +1622,17 @@ footer a:hover{text-decoration:underline}
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.uniform2f(uRes, W, H); gl.uniform1f(uDpr, DPR); gl.uniform1f(uGain, 0.9);
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, data);
+    var shx = 0, shy = 0;
+    if (now < SHAKE.until) { var sa = SHAKE.amp * (SHAKE.until - now) / 240; shx = rnd(-sa, sa); shy = rnd(-sa, sa); }
     if (glitching) {                         // RGB split: red, green and blue drawn apart
       var gsp = GL.split * (0.6 + Math.random() * 0.8);
-      gl.colorMask(true, false, false, true); gl.uniform2f(uOff, gsp, 0); gl.drawArrays(gl.POINTS, 0, N);
-      gl.colorMask(false, true, false, true); gl.uniform2f(uOff, 0, 0); gl.drawArrays(gl.POINTS, 0, N);
-      gl.colorMask(false, false, true, true); gl.uniform2f(uOff, -gsp, gsp * 0.3); gl.drawArrays(gl.POINTS, 0, N);
+      gl.colorMask(true, false, false, true); gl.uniform2f(uOff, gsp + shx, shy); gl.drawArrays(gl.POINTS, 0, N);
+      gl.colorMask(false, true, false, true); gl.uniform2f(uOff, shx, shy); gl.drawArrays(gl.POINTS, 0, N);
+      gl.colorMask(false, false, true, true); gl.uniform2f(uOff, -gsp + shx, gsp * 0.3 + shy); gl.drawArrays(gl.POINTS, 0, N);
       gl.colorMask(true, true, true, true); gl.uniform2f(uOff, 0, 0);
       for (var gj = 0; gj < GL.bands.length; gj++) GL.bands[gj].j = 0.5 + Math.random();   // jitter next frame
     } else {
-      gl.uniform2f(uOff, 0, 0); gl.drawArrays(gl.POINTS, 0, N);
+      gl.uniform2f(uOff, shx, shy); gl.drawArrays(gl.POINTS, 0, N);
     }
     drawCode(now, glitching); drawHud(now);
   }
