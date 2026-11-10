@@ -87,8 +87,6 @@ a{color:inherit}
 @keyframes sxrun{0%{left:-38%}100%{left:100%}}
 @media (prefers-reduced-motion:reduce){ .sx-board.progress .sx-meter i{animation:none;width:60%} .sx-face.flip{animation:none} }
 /* hacker texture: faint flickering scanlines, a terminal cursor, and text that tears during glitches */
-.hero::after{content:"";position:absolute;inset:0;z-index:2;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(255,255,255,.03) 0 1px,transparent 1px 3px);animation:scanflick 7s steps(1) infinite}
-@keyframes scanflick{0%,100%{opacity:1}46%{opacity:.55}47%{opacity:1}81%{opacity:.75}82%{opacity:1}}
 .hint::after{content:"\258C";margin-left:3px;color:var(--ink);animation:caret 1.05s steps(1) infinite}
 @keyframes caret{50%{opacity:0}}
 .hero.glitching .brand,.hero.glitching .ch-name,.hero.glitching .sx-name{text-shadow:-2px 0 rgba(255,40,90,.85),2px 0 rgba(0,240,255,.85);transform:translateX(var(--gx,0))}
@@ -1580,15 +1578,18 @@ footer a:hover{text-decoration:underline}
   }
 
   /* ---------------- code layer: binary rain, glitch readouts, click bursts ----------------
-     A transparent 2D canvas over the dots. Instead of painting black to leave trails
-     (which would hide the dots), it erases a little of itself every frame. */
+     A transparent 2D canvas over the dots, cleared and redrawn every frame: each rain
+     column keeps its own short trail of characters that fade by age, so the background
+     always returns to pure black (fading the canvas a little each frame instead leaves
+     a grey film, because tiny alphas round down to a floor and never reach zero). */
   var NEON = [[0.24, 1, 0.54], [0.3, 0.79, 1], [1, 0.18, 0.47], [1, 0.84, 0.2]];
   var NEON_CSS = ['61,255,138', '76,201,255', '255,45,120', '255,214,51'];
   var HEX = '0123456789ABCDEF';
   var TAGS = ['ACCESS GRANTED', 'SIGNAL LOST', 'DECRYPTING', 'root@flick', 'ERR 0x1F', 'sudo make art', 'OVERRIDE', '0xDEADBEEF', 'sys.flick', 'BUFFER OVERFLOW'];
   // how much of the screen rains code on each source: busier on Chaos and the camera
   var RAIN_AMT = { wordmark: 0.06, intro: 0.04, introIcons: 0.05, intro2: 0.05, systems: 0.08, chaos: 0.11, photography: 0.1 };
-  var codeCv = null, cx2 = null, rain = { cols: [], cell: 16, next: 0 }, bursts = [];
+  var codeCv = null, cx2 = null, rain = { cols: [], cell: 16, next: 0, last: 0 }, bursts = [], reads = [];
+  var TRAIL = 16, RAIN_STEP = 150;   // characters per trail, ms per step
   function codeResize() {
     codeCv = codeCv || document.getElementById('code');
     if (!codeCv) return;
@@ -1602,7 +1603,7 @@ footer a:hover{text-decoration:underline}
   function newCol(anywhere) {
     var r = Math.random();
     return { y: anywhere ? rnd(-H, H) : rnd(-H * 0.5, 0), v: rnd(0.45, 0.9), on: Math.random() < (RAIN_AMT[current] || 0.2),
-             hex: r < 0.18, c: r < 0.6 ? 0 : r < 0.85 ? 1 : r < 0.96 ? 2 : 3, last: '' };
+             hex: r < 0.18, c: r < 0.6 ? 0 : r < 0.85 ? 1 : r < 0.96 ? 2 : 3, trail: [] };
   }
   function glyph(hex) { return hex ? HEX[(Math.random() * 16) | 0] : Math.random() < 0.5 ? '0' : '1'; }
   function codeBurst(x, y) {                 // a click sprays ones and zeros out of the dots
@@ -1614,39 +1615,47 @@ footer a:hover{text-decoration:underline}
   }
   function drawCode(now, glitching) {
     if (!cx2 || reduce) return;
-    var g = cx2, cell = rain.cell, i, col;
-    g.globalCompositeOperation = 'destination-out';
-    g.fillStyle = 'rgba(0,0,0,0.022)'; g.fillRect(0, 0, W, H);   // slower fade, so the slower rain keeps its trails
-    g.globalCompositeOperation = 'source-over';
+    var g = cx2, cell = rain.cell, i, j, col;
+    g.clearRect(0, 0, W, H);
     g.save(); g.beginPath(); g.rect(0, 0, W, rain.bottom || H); g.clip();
     g.textBaseline = 'top';
     if (now > rain.next) {                   // the rain steps a character at a time
-      rain.next = now + 150;
-      g.font = '600 ' + (cell - 2) + 'px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+      rain.next = now + RAIN_STEP; rain.last = now;
       for (i = 0; i < rain.cols.length; i++) {
         col = rain.cols[i];
         col.y += cell * col.v;
-        if (col.y > (rain.bottom || H) + cell * 4) { rain.cols[i] = newCol(false); continue; }
-        if (!col.on || col.y < 0) continue;
-        var x = i * cell, rgb = NEON_CSS[col.c];
-        if (col.last) {                      // the old head settles into the trail colour
-          g.clearRect(x, col.y - cell * col.v - 1, cell, cell + 2);
-          g.fillStyle = 'rgba(' + rgb + ',0.85)'; g.fillText(col.last, x, col.y - cell * col.v);
-        }
-        col.last = glyph(col.hex);
-        g.fillStyle = '#f2fff5'; g.fillText(col.last, x, col.y);
+        if (col.y > (rain.bottom || H) + cell * TRAIL) { rain.cols[i] = newCol(false); continue; }   // gone once its whole trail has passed
+        if (col.on && col.y >= 0 && col.y < (rain.bottom || H)) { col.trail.unshift([glyph(col.hex), col.y]); if (col.trail.length > TRAIL) col.trail.pop(); }
       }
     }
-    if (glitching && Math.random() < 0.35) {  // glitch readouts: blocks of hex and words in the torn bands
-      g.font = '600 12px ui-monospace, Menlo, Consolas, monospace';
+    // draw every trail: a bright head, then the column's colour fading out by age, smoothly between steps
+    var fr = clamp01((now - rain.last) / RAIN_STEP);
+    g.font = '600 ' + (cell - 2) + 'px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+    for (i = 0; i < rain.cols.length; i++) {
+      col = rain.cols[i];
+      if (!col.on || !col.trail.length) continue;
+      var x = i * cell, rgb = NEON_CSS[col.c];
+      for (j = col.trail.length - 1; j >= 0; j--) {
+        var age = (j + fr) / TRAIL;
+        if (age >= 1) continue;
+        g.fillStyle = j === 0 ? 'rgba(242,255,245,' + (1 - age * 0.5).toFixed(3) + ')' : 'rgba(' + rgb + ',' + (0.85 * Math.pow(1 - age, 1.4)).toFixed(3) + ')';
+        g.fillText(col.trail[j][0], x, col.trail[j][1]);
+      }
+    }
+    if (glitching && Math.random() < 0.35 && reads.length < 24) {   // glitch readouts: hex and words in the torn bands
       for (i = 0; i < GL.bands.length; i++) {
-        var bd = GL.bands[i], ci = NEON.indexOf(bd.c), rgbB = NEON_CSS[ci < 0 ? 0 : ci];
-        var bx = rnd(0, W * 0.8), bw = rnd(60, 380);
-        g.fillStyle = 'rgba(' + rgbB + ',0.12)'; g.fillRect(bx, bd.y, bw, bd.h);
-        var str = '';
+        var bd = GL.bands[i], ci = NEON.indexOf(bd.c), str = '';
         if (bd.tag && Math.random() < 0.5) str = '[' + TAGS[(Math.random() * TAGS.length) | 0] + ']';
         else for (var q = 0; q < 6; q++) str += (Math.random() < 0.5 ? '0x' + HEX[(Math.random() * 16) | 0] + HEX[(Math.random() * 16) | 0] : (Math.random() * 256 | 0).toString(2).padStart(8, '0')) + ' ';
-        g.fillStyle = 'rgba(' + rgbB + ',0.95)'; g.fillText(str, bx + rnd(-20, 20), bd.y + bd.h * 0.5 - 6);
+        reads.push({ x: rnd(0, W * 0.8) + rnd(-20, 20), y: bd.y + bd.h * 0.5 - 6, s: str, rgb: NEON_CSS[ci < 0 ? 0 : ci], t0: now });
+      }
+    }
+    if (reads.length) {
+      g.font = '600 12px ui-monospace, Menlo, Consolas, monospace';
+      for (i = reads.length - 1; i >= 0; i--) {
+        var rd = reads[i], e1 = (now - rd.t0) / 420;
+        if (e1 >= 1) { reads.splice(i, 1); continue; }
+        g.fillStyle = 'rgba(' + rd.rgb + ',' + (0.95 * (1 - e1)).toFixed(3) + ')'; g.fillText(rd.s, rd.x, rd.y);
       }
     }
     for (i = rings.length - 1; i >= 0; i--) {   // shatter shockwaves
