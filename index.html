@@ -503,6 +503,51 @@ footer a:hover{text-decoration:underline}
     { name: 'HALVORSEN', params: 'a 1.89', dt: 0.005, c: [-2.5, -2.5, -2.5], k: 1 / 11,
       f: function (x, y, z, o) {
         o[0] = -1.89 * x - 4 * y - 4 * z - y * y; o[1] = -1.89 * y - 4 * z - 4 * x - z * z; o[2] = -1.89 * z - 4 * x - 4 * y - x * x;
+      } },
+    // Not a strange attractor but a black hole: dots orbit in an accretion disk, faster the
+    // closer in (Kepler), spiral slowly inward and vanish at the event horizon; a quarter of
+    // what falls in is fired out along the poles as twisting jets. Dots behind the hole are
+    // bent outward on screen (gravitational lensing), so the far side of the disk arcs over
+    // and under the black shadow like a halo. Drawn from a lower angle to show the disk.
+    { name: 'BLACK HOLE', params: 'horizon 0.17  disk + jets  lensed', dt: 0.009, c: [0, 0, 0], k: 1 / 1.85, pitch: 0.16, lens: 0.26,
+      f: function (x, y, z, o) {
+        var r = Math.sqrt(x * x + y * y) + 1e-4, vt = 1.7 / Math.sqrt(r + 0.04), vr, vz;
+        if (r < 0.32 && Math.abs(z) > 0.08) { vr = 0.1; vz = (z > 0 ? 1 : -1) * 3.2; }   // in a jet: out along the pole, spiralling
+        else { vr = -0.1 - 0.035 / r; vz = -z * 0.8; }                                      // in the disk: orbit, sink in, settle flat
+        o[0] = (x * vr - y * vt) / r; o[1] = (y * vr + x * vt) / r; o[2] = vz;
+      },
+      post: function (k) {                   // swallowed or flung off the end of a jet: start again
+        var x = AX[k], y = AY[k], z = AZ[k], r = Math.sqrt(x * x + y * y), az = Math.abs(z), a = rnd(0, 6.283);
+        if (az > 2.8 || (r < 0.17 && az < 0.08)) {
+          if (az <= 2.8 && Math.random() < 0.25) { AX[k] = Math.cos(a) * 0.05; AY[k] = Math.sin(a) * 0.05; AZ[k] = Math.random() < 0.5 ? 0.1 : -0.1; }
+          else { var rr = rnd(1.3, 2.5); AX[k] = Math.cos(a) * rr; AY[k] = Math.sin(a) * rr; AZ[k] = rnd(-0.05, 0.05); }
+        }
+      } },
+    // A quasar: the same engine turned up. A thick, dim dusty torus leaks gas into a small,
+    // white-hot accretion disk; most of what reaches the centre is fired out along the poles
+    // in long, narrow blue-white jets, injected in pulses so they run in bright knots.
+    // Coloured by region instead of speed, and seen from higher up, with only a faint lens.
+    { name: 'QUASAR', params: 'torus + disk  relativistic jets', dt: 0.009, c: [0, 0, 0], k: 1 / 3.1, pitch: 0.5, lens: 0.06,
+      f: function (x, y, z, o) {
+        var r = Math.sqrt(x * x + y * y) + 1e-4, vt, vr, vz;
+        if (r < 0.22 && Math.abs(z) > 0.06) { vt = 0.5; vr = 0.012 - r * 0.4; vz = (z > 0 ? 1 : -1) * 4; }   // jet: straight out, pinched narrow
+        else if (r > 1) { vt = 0.9 / Math.sqrt(r); vr = -0.15; vz = -z * 0.12; }                     // torus: thick, slow, leaking in
+        else { vt = 1.5 / Math.sqrt(r + 0.03); vr = -0.5 - 0.03 / r; vz = -z * 2.5; }                 // disk: fast, thin, falling in
+        o[0] = (x * vr - y * vt) / r; o[1] = (y * vr + x * vt) / r; o[2] = vz;
+      },
+      post: function (k) {
+        var x = AX[k], y = AY[k], z = AZ[k], r = Math.sqrt(x * x + y * y), az = Math.abs(z), a = rnd(0, 6.283);
+        if (az > 3.6 || (r < 0.08 && az < 0.06)) {
+          var pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.004);   // the jets pulse, so they run in knots
+          if (az <= 3.6 && Math.random() < 0.85 * pulse) { AX[k] = Math.cos(a) * 0.05; AY[k] = Math.sin(a) * 0.05; AZ[k] = Math.random() < 0.5 ? 0.07 : -0.07; }
+          else { var rr = rnd(1.05, 1.8); AX[k] = Math.cos(a) * rr; AY[k] = Math.sin(a) * rr; AZ[k] = rnd(-0.35, 0.35) * (1.9 - rr); }
+        }
+      },
+      tint: function (k) {                   // sets the dot's colour by where it is; returns its size
+        var x = AX[k], y = AY[k], z = AZ[k], r = Math.sqrt(x * x + y * y), az = Math.abs(z);
+        if (r < 0.22 && az > 0.06) { var fj = clamp01(az / 3.6); BR[k] = 0.62 + 0.38 * (1 - fj); BG[k] = 0.88 + 0.12 * (1 - fj); BB[k] = 1; return 1.8 - 0.7 * fj; }
+        if (r <= 1) { var u = clamp01((r - 0.08) / 0.92); BR[k] = 1; BG[k] = 0.97 - 0.3 * u; BB[k] = 0.92 - 0.72 * u; return 1.7 - 0.8 * u; }
+        BR[k] = 0.62; BG[k] = 0.2; BB[k] = 0.85; return 0.7;
       } }
   ];
   var ATT_O = [0, 0, 0], ATT_MORPH = 16000;
@@ -513,6 +558,7 @@ footer a:hover{text-decoration:underline}
     var mx = x + o[0] * h * 0.5, my = y + o[1] * h * 0.5, mz = z + o[2] * h * 0.5;
     at.f(mx, my, mz, o);
     AX[k] = x + o[0] * h; AY[k] = y + o[1] * h; AZ[k] = z + o[2] * h;
+    if (at.post) at.post(k);
     return Math.sqrt(o[0] * o[0] + o[1] * o[1] + o[2] * o[2]);
   }
   // Put the whole swarm on attractor `ai`: a few dozen seeds settle onto it, then each seed
@@ -559,7 +605,8 @@ footer a:hover{text-decoration:underline}
     A.yaw += reduce ? 0 : dt * 0.00011;
     A.ly += ((on ? (ptr.x - A.cx) / box.w * 1.1 : 0) - A.ly) * 0.04;
     A.lp += ((on ? (ptr.y - A.cy) / box.h * 0.7 : 0) - A.lp) * 0.04;
-    view3(A, A.yaw + A.ly, 0.32 + A.lp);
+    view3(A, A.yaw + A.ly, (at.pitch === undefined ? 0.32 : at.pitch) + A.lp);
+    var lensE = at.lens ? at.lens * A.S : 0, lensE2 = lensE * lensE, hole = at.lens ? proj3(A, 0, 0, 0) : null;
     var h = reduce ? 0 : at.dt * dt / 16.7, inv = 1 / at.k, S = A.S, vr = 1 / A.vref;
     // moving through the flow knocks the dots near the cursor off their paths, harder the faster you move
     var R = coarse ? 70 : 90, R2 = R * R, kick = (0.05 + Math.min(0.25, Math.hypot(ptr.vx, ptr.vy) * 0.06)) * inv;
@@ -574,11 +621,25 @@ footer a:hover{text-decoration:underline}
       }
       AU[k] += (v - AU[k]) * 0.2;
       // colour by speed: cyan when slow, magenta, then amber when fast
-      var sn = clamp01(AU[k] * vr), c0, c1, u;
-      if (sn < 0.5) { c0 = ATT_COLS[0]; c1 = ATT_COLS[1]; u = sn * 2; } else { c0 = ATT_COLS[1]; c1 = ATT_COLS[2]; u = sn * 2 - 1; }
-      BR[k] = c0[0] + (c1[0] - c0[0]) * u; BG[k] = c0[1] + (c1[1] - c0[1]) * u; BB[k] = c0[2] + (c1[2] - c0[2]) * u;
-      put3(A, k, (AX[k] - at.c[0]) * at.k * S, -(AZ[k] - at.c[2]) * at.k * S, (AY[k] - at.c[1]) * at.k * S,
-           A.base * (0.75 + 0.5 * sn), undefined, A.zr);
+      var sn = clamp01(AU[k] * vr), c0, c1, u, dsz;
+      if (at.tint) dsz = at.tint(k);          // some colour by region instead
+      else {
+        if (sn < 0.5) { c0 = ATT_COLS[0]; c1 = ATT_COLS[1]; u = sn * 2; } else { c0 = ATT_COLS[1]; c1 = ATT_COLS[2]; u = sn * 2 - 1; }
+        BR[k] = c0[0] + (c1[0] - c0[0]) * u; BG[k] = c0[1] + (c1[1] - c0[1]) * u; BB[k] = c0[2] + (c1[2] - c0[2]) * u;
+        dsz = 0.75 + 0.5 * sn;
+      }
+      var wx = (AX[k] - at.c[0]) * at.k * S, wy = -(AZ[k] - at.c[2]) * at.k * S, wz = (AY[k] - at.c[1]) * at.k * S;
+      put3(A, k, wx, wy, wz, A.base * dsz, undefined, A.zr);
+      if (lensE) {                           // lensing: light from behind the hole is bent out around its shadow
+        var z3 = wy * A.sP + (wx * A.sY + wz * A.cY) * A.cP, w = clamp01(z3 / (0.12 * S));
+        if (w > 0) {
+          // the lens equation: a source at distance b from the hole is seen at (b + sqrt(b^2 + 4E^2)) / 2,
+          // so light from right behind it lands on a ring of radius E (an Einstein ring)
+          var ldx = tx[k] - hole[0], ldy = ty[k] - hole[1], lb = Math.sqrt(ldx * ldx + ldy * ldy) + 0.01;
+          var lf = 1 + w * ((lb + Math.sqrt(lb * lb + 4 * lensE2)) / 2 / lb - 1);
+          tx[k] = hole[0] + ldx * lf; ty[k] = hole[1] + ldy * lf;
+        }
+      }
     }
   }
 
