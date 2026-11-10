@@ -42,7 +42,8 @@ a{color:inherit}
 
 /* ---------- hero: the hub ---------- */
 .hero{position:relative;height:100vh;height:100svh;min-height:560px;overflow:hidden;display:flex;flex-direction:column;isolation:isolate}
-#field{position:absolute;inset:0;width:100%;height:100%;z-index:0;display:block;cursor:crosshair;touch-action:pan-y}
+#field{position:absolute;inset:0;width:100%;height:100%;z-index:0;display:block;cursor:none;touch-action:pan-y}
+@media (prefers-reduced-motion:reduce){#field{cursor:crosshair}}   /* the drawn star cursor is off with reduced motion */
 .fallback{display:none}
 .no-field .fallback{display:grid;position:absolute;inset:0;place-items:center;font-size:clamp(36px,9vw,150px);line-height:1;z-index:0}
 
@@ -298,7 +299,7 @@ footer a:hover{text-decoration:underline}
   }
   var CH_HINT = coarse
     ? { chaos: 'Drag through the flow to disturb it. Tap for a new attractor.', photography: 'Tap to take a shot.', systems: 'Tap for the next project.' }
-    : { chaos: 'Move through the flow to disturb it. Click to morph into a new attractor.',
+    : { chaos: 'Shoot the star through the flow to break it up. Click to morph into a new attractor.',
         photography: 'Move to aim the camera. Click to take a shot.',
         systems: 'Roll over the engine to zoom in on a project. Click to fire the next one.' };
   hint(HINT);
@@ -486,7 +487,7 @@ footer a:hover{text-decoration:underline}
      Every dot is a point riding a chaotic flow, stepped forward each frame, so the
      swarm streams round a 3D shape whose path never repeats. Colour runs cyan to
      magenta to amber with speed. The view turns slowly and leans toward the cursor;
-     moving through the flow knocks dots off their paths, the chaos spreads them out,
+     the shooting-star cursor punches through the flow, the chaos spreads the dots out,
      and the attractor pulls them back in. A click, or every 16 seconds, morphs the
      swarm into the next attractor. Each one is f(x, y, z) -> velocity, with a centre
      and scale that fit it to a unit box (z is drawn as up). */
@@ -607,13 +608,25 @@ footer a:hover{text-decoration:underline}
     A.lp += ((on ? (ptr.y - A.cy) / box.h * 0.7 : 0) - A.lp) * 0.04;
     view3(A, A.yaw + A.ly, (at.pitch === undefined ? 0.32 : at.pitch) + A.lp);
     var lensE = at.lens ? at.lens * A.S : 0, lensE2 = lensE * lensE, hole = at.lens ? proj3(A, 0, 0, 0) : null;
-    var h = reduce ? 0 : at.dt * dt / 16.7, inv = 1 / at.k, S = A.S, vr = 1 / A.vref;
-    // moving through the flow knocks the dots near the cursor off their paths, harder the faster you move
-    var R = coarse ? 70 : 90, R2 = R * R, kick = (0.05 + Math.min(0.25, Math.hypot(ptr.vx, ptr.vy) * 0.06)) * inv;
+    var h = reduce ? 0 : at.dt * dt / 16.7, S = A.S, vr = 1 / A.vref;
+    // The shooting star punches through the flow: dots in a narrow band around it are thrown
+    // out sideways from its line of flight, and a little ahead, like a bullet through smoke;
+    // the chaos scatters them and the attractor pulls them back in. Standing still, it just
+    // nudges the nearest dots straight out.
+    var R = coarse ? 46 : 38, R2 = R * R, spd = Math.hypot(ptr.vx, ptr.vy), mv = spd > 0.01;
+    var ux = mv ? ptr.vx / spd : 0, uy = mv ? ptr.vy / spd : 0, shove = (1.2 + Math.min(10, spd * 6)) / (at.k * S);   // px a frame, in attractor units
     for (k = 0; k < N; k++) {
       if (on) {
         var dx = tx[k] - ptr.x, dy = ty[k] - ptr.y, d2 = dx * dx + dy * dy;
-        if (d2 < R2) { var f = kick * (1 - d2 / R2); AX[k] += rnd(-f, f); AY[k] += rnd(-f, f); AZ[k] += rnd(-f, f); }
+        if (d2 < R2) {
+          var d = Math.sqrt(d2) + 0.01, al = dx * ux + dy * uy, qx = dx - al * ux, qy = dy - al * uy, ql = Math.sqrt(qx * qx + qy * qy) + 0.01;
+          var nx = mv ? qx / ql : dx / d, ny = mv ? qy / ql : dy / d, fo = 1 - d / R, fs = shove * fo * fo;
+          var sxp = (nx + ux * 0.35) * fs, syp = (ny + uy * 0.35) * fs;
+          // a push across the screen, turned back into the scene: screen right is (cosY, 0, -sinY)
+          // in the world and screen down is (-sinP sinY, cosP, -sinP cosY); the attractor draws z as up
+          var wx = sxp * A.cY - syp * A.sP * A.sY, wy = syp * A.cP, wz = -sxp * A.sY - syp * A.sP * A.cY;
+          AX[k] += wx; AZ[k] -= wy; AY[k] += wz;
+        }
       }
       var v = h ? attStep(at, k, h) : AU[k];
       if (!(Math.abs(AX[k]) < 1e4 && Math.abs(AY[k]) < 1e4 && Math.abs(AZ[k]) < 1e4)) {   // flung too far: rejoin another dot's path
@@ -1017,9 +1030,9 @@ footer a:hover{text-decoration:underline}
             uz * s,          c,       -ux * s,
             uz * ux * C,     ux * s,  c + uz * uz * C];
   }
-  var ZOOM = 2.4;
+  var ZOOM = 2.4;                          // how far it zooms in under the cursor
   var CYL_RGB = [[0.24, 1, 0.54], [0.3, 0.79, 1], [1, 0.22, 0.52], [1, 0.8, 0.22]];   // green, cyan, magenta, amber
-  function cylRGB(k, j, f, w) { var c = CYL_RGB[j]; setRGB(k, (c[0] + (1 - c[0]) * w) * f, (c[1] + (1 - c[1]) * w) * f, (c[2] + (1 - c[2]) * w) * f); }   // w mixes toward white                          // how far it zooms in under the cursor
+  function cylRGB(k, j, f, w) { var c = CYL_RGB[j]; setRGB(k, (c[0] + (1 - c[0]) * w) * f, (c[1] + (1 - c[1]) * w) * f, (c[2] + (1 - c[2]) * w) * f); }   // w mixes toward white
   function initSchematic(now) {
     var n = PROJECTS.length, i, j, k = 0, e, q, tall = box.h > box.w;
     var tilt = 0.2, pitch = tall ? 0.42 : 0.26;
@@ -1523,8 +1536,8 @@ footer a:hover{text-decoration:underline}
   var resumeCycle = 0;   // on touch screens, the preview cycle resumes after you stop playing
 
   /* ---------------- pointer: repel and scatter ---------------- */
-  var ptr = { x: -1e5, y: -1e5, on: false, vx: 0, vy: 0, ddx: 0, t: 0 };
-  var LENS = 170, LENS_TOUCH = 115, lens = 0; // cursor circle radius in px (desktop, touch)
+  var ptr = { x: -1e5, y: -1e5, on: false, vx: 0, vy: 0, ddx: 0, t: 0, field: false };
+  var LENS = 60, LENS_TOUCH = 64, lens = 0; // cursor circle radius in px (desktop, touch)
   var overNav = false;
   nav.addEventListener('pointerenter', function () { overNav = true; });
   nav.addEventListener('pointerleave', function () { overNav = false; });
@@ -1534,7 +1547,7 @@ footer a:hover{text-decoration:underline}
       var dt = Math.max(8, e.timeStamp - ptr.t);
       ptr.vx = (nx - ptr.x) / dt; ptr.vy = (ny - ptr.y) / dt; ptr.ddx += nx - ptr.x;
     }
-    ptr.x = nx; ptr.y = ny; ptr.t = e.timeStamp; ptr.on = true;
+    ptr.x = nx; ptr.y = ny; ptr.t = e.timeStamp; ptr.on = true; ptr.field = e.target === canvas;
   }, { passive: true });
   hero.addEventListener('pointerleave', function () { ptr.on = false; });
   hero.addEventListener('pointerup', function (e) { if (e.pointerType === 'touch') ptr.on = false; });
@@ -1747,6 +1760,35 @@ footer a:hover{text-decoration:underline}
       }
     }
     g.restore();
+    drawStar(g, now);
+  }
+  /* The cursor: a small shooting star. A bright point with a soft glow and a twinkling
+     cross, trailing a tail of where it has been over the last quarter second, white-blue
+     at the head fading to magenta, thinner and fainter toward the end. Over the dots only;
+     buttons and links keep the normal pointer. */
+  var starTrail = [], STAR_MS = 260;
+  function drawStar(g, now) {
+    var on = ptr.on && ptr.field && !overNav && !coarse;
+    if (on) {
+      var last = starTrail[starTrail.length - 1];
+      if (!last || last.x !== ptr.x || last.y !== ptr.y) starTrail.push({ x: ptr.x, y: ptr.y, t: now });
+    }
+    while (starTrail.length && now - starTrail[0].t > STAR_MS) starTrail.shift();
+    if (!on) { starTrail.length = 0; return; }
+    g.lineCap = 'round';
+    for (var i = 1; i < starTrail.length; i++) {
+      var a = starTrail[i - 1], b = starTrail[i], f = clamp01(1 - (now - b.t) / STAR_MS);   // 1 at the head
+      g.strokeStyle = 'rgba(' + Math.round(255 - 85 * f) + ',' + Math.round(90 + 145 * f) + ',' + Math.round(200 + 55 * f) + ',' + (f * f * 0.9).toFixed(3) + ')';
+      g.lineWidth = 0.4 + f * 2.4;
+      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+    }
+    var x = ptr.x, y = ptr.y, tw = 0.72 + 0.28 * Math.sin(now * 0.008), gr = g.createRadialGradient(x, y, 0, x, y, 9);
+    gr.addColorStop(0, 'rgba(255,255,255,0.9)'); gr.addColorStop(0.35, 'rgba(170,235,255,0.35)'); gr.addColorStop(1, 'rgba(170,235,255,0)');
+    g.fillStyle = gr; g.beginPath(); g.arc(x, y, 9, 0, 6.283); g.fill();
+    var L = 6.5 * tw;
+    g.strokeStyle = 'rgba(255,255,255,' + (0.75 * tw).toFixed(2) + ')'; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(x - L, y); g.lineTo(x + L, y); g.moveTo(x, y - L); g.lineTo(x, y + L); g.stroke();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(x, y, 1.6, 0, 6.283); g.fill();
   }
   // terminal readout in the corner: a boot log first, then live numbers
   var hudEl = document.getElementById('hud'), hudT = 0, fpsS = 60, lastNow = 0, bootAt = performance.now();
@@ -1780,7 +1822,7 @@ footer a:hover{text-decoration:underline}
       else if (src.type === 'video') updateVideo(src);
     }
     var WIG = 1.5; // wiggle radius in px: raise for livelier dots, lower for calmer
-    // Cursor sphere: a dark ball the dots flow around in 3D. It grows and shrinks smoothly.
+    // Cursor magnet: dots are pushed away from the shooting star. It fades in and out smoothly.
     lens += ((ptr.on && !overNav && !reduce ? 1 : 0) - lens) * 0.14;
     var R = Math.min(coarse ? LENS_TOUCH : LENS, Math.min(W, H) * 0.24) * lens, R2 = R * R, useP = lens > 0.01 && !(src && src.type === 'anim' && src.fn !== 'word3d');
     if (!reduce && now > GL.next) {
@@ -1794,24 +1836,14 @@ footer a:hover{text-decoration:underline}
     for (var i = 0, o = 0; i < N; i++, o += 6) {
       var k = KS, w = now - wake[i];
       if (w < 0) { k = 0; if (fall[i]) vy[i] += fall[i]; } else { if (fall[i]) fall[i] = 0; if (w < 220) k *= w / 220; }
-      var gx = tx[i], gy = ty[i], lm = 1;   // lm: bigger in front of the sphere, hidden behind it
+      var gx = tx[i], gy = ty[i], lm = 1;
       if (useP) {
-        var dx = gx - ptr.x, dy = gy - ptr.y, d2 = dx * dx + dy * dy;
-        if (d2 < R2) {
-          // Swept into orbit: each dot circles the sphere on its own tilted path, so it
-          // passes in front of the ball, behind it, and back around.
-          var d = Math.sqrt(d2) + 0.001, u = d / R;
-          var ang = Math.atan2(dy, dx) + now * 0.0016 * (1.3 - 0.5 * u);
-          var inc = (ph[i] / 6.283 - 0.5) * 2.6, ro = R * (1.02 + 0.16 * (1 - u));
-          var ox = Math.cos(ang) * ro, oy = Math.sin(ang) * Math.cos(inc) * ro, oz = Math.sin(ang) * Math.sin(inc) * ro;
-          gx = ptr.x + ox; gy = ptr.y + oy;
-          if (oz > 0 && ox * ox + oy * oy < R2) lm = 0;              // behind the ball: hidden
-          else lm = 1 + 0.6 * Math.max(0, -oz / ro);                 // in front: nearer, so bigger
-          if (k > 0) k = 0.3;
-        } else if (d2 < R2 * 2.25) {
-          // just outside: bent into a dense ring hugging the sphere's edge
-          var d3 = Math.sqrt(d2), t3 = (d3 - R) / (0.5 * R), nd3 = R * (1.05 + 0.45 * t3 * t3);
-          gx = ptr.x + dx / d3 * nd3; gy = ptr.y + dy / d3 * nd3;
+        // Magnetised: dots near the star are pushed straight out, hardest right under it and
+        // easing off with distance, so a soft clearing follows the cursor and closes up behind.
+        var dx = gx - ptr.x, dy = gy - ptr.y, d2 = dx * dx + dy * dy, RM = R * 1.4;
+        if (d2 < RM * RM) {
+          var d = Math.sqrt(d2) + 0.001, fo = 1 - d / RM, push = R * 0.45 * fo * fo;
+          gx += dx / d * push; gy += dy / d * push;
         }
       }
       var ax = (gx - px[i]) * k, ay = (gy - py[i]) * k;
