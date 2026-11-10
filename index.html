@@ -1587,7 +1587,7 @@ footer a:hover{text-decoration:underline}
   var HEX = '0123456789ABCDEF';
   var TAGS = ['ACCESS GRANTED', 'SIGNAL LOST', 'DECRYPTING', 'root@flick', 'ERR 0x1F', 'sudo make art', 'OVERRIDE', '0xDEADBEEF', 'sys.flick', 'BUFFER OVERFLOW'];
   // how much of the screen rains code on each source: busier on Chaos and the camera
-  var RAIN_AMT = { wordmark: 0.3, intro: 0.2, introIcons: 0.24, intro2: 0.24, systems: 0.42, chaos: 0.62, photography: 0.52 };
+  var RAIN_AMT = { wordmark: 0.06, intro: 0.04, introIcons: 0.05, intro2: 0.05, systems: 0.08, chaos: 0.11, photography: 0.1 };
   var codeCv = null, cx2 = null, rain = { cols: [], cell: 16, next: 0 }, bursts = [];
   function codeResize() {
     codeCv = codeCv || document.getElementById('code');
@@ -1601,7 +1601,7 @@ footer a:hover{text-decoration:underline}
   }
   function newCol(anywhere) {
     var r = Math.random();
-    return { y: anywhere ? rnd(-H, H) : rnd(-H * 0.5, 0), v: rnd(0.7, 1.7), on: Math.random() < (RAIN_AMT[current] || 0.2),
+    return { y: anywhere ? rnd(-H, H) : rnd(-H * 0.5, 0), v: rnd(0.45, 0.9), on: Math.random() < (RAIN_AMT[current] || 0.2),
              hex: r < 0.18, c: r < 0.6 ? 0 : r < 0.85 ? 1 : r < 0.96 ? 2 : 3, last: '' };
   }
   function glyph(hex) { return hex ? HEX[(Math.random() * 16) | 0] : Math.random() < 0.5 ? '0' : '1'; }
@@ -1616,12 +1616,12 @@ footer a:hover{text-decoration:underline}
     if (!cx2 || reduce) return;
     var g = cx2, cell = rain.cell, i, col;
     g.globalCompositeOperation = 'destination-out';
-    g.fillStyle = 'rgba(0,0,0,0.045)'; g.fillRect(0, 0, W, H);
+    g.fillStyle = 'rgba(0,0,0,0.022)'; g.fillRect(0, 0, W, H);   // slower fade, so the slower rain keeps its trails
     g.globalCompositeOperation = 'source-over';
     g.save(); g.beginPath(); g.rect(0, 0, W, rain.bottom || H); g.clip();
     g.textBaseline = 'top';
     if (now > rain.next) {                   // the rain steps a character at a time
-      rain.next = now + 55;
+      rain.next = now + 150;
       g.font = '600 ' + (cell - 2) + 'px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
       for (i = 0; i < rain.cols.length; i++) {
         col = rain.cols[i];
