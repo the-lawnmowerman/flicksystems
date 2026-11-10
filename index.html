@@ -549,10 +549,156 @@ footer a:hover{text-decoration:underline}
         if (r < 0.22 && az > 0.06) { var fj = clamp01(az / 3.6); BR[k] = 0.62 + 0.38 * (1 - fj); BG[k] = 0.88 + 0.12 * (1 - fj); BB[k] = 1; return 1.8 - 0.7 * fj; }
         if (r <= 1) { var u = clamp01((r - 0.08) / 0.92); BR[k] = 1; BG[k] = 0.97 - 0.3 * u; BB[k] = 0.92 - 0.72 * u; return 1.7 - 0.8 * u; }
         BR[k] = 0.62; BG[k] = 0.2; BB[k] = 0.85; return 0.7;
-      } }
+      } },
+    // Not a flow at all: an atom splitting, played as a 12.6 s loop. Electrons circle a nucleus
+    // of red protons and blue neutrons; a neutron streaks in and hits it; the nucleus wobbles,
+    // stretches into a peanut and snaps in two, three neutrons shoot out, and it goes off like a
+    // hydrogen bomb, slowly: a white flash and shock front, a fireball that climbs and rolls into
+    // a mushroom cap on a rising stem, a surge rolling out over the ground, all cooling from
+    // white through orange and red to smoke. Then a fresh atom gathers. Seen nearly side on.
+    { name: 'FISSION', params: 'n + U-235  ->  Ba + Kr + 3n  ->  fireball', hold: 25200, pitch: 0.1, script: fissionFrame }
   ];
   var ATT_O = [0, 0, 0], ATT_MORPH = 16000;
   var ATT_COLS = [[0.25, 0.84, 1], [1, 0.3, 0.82], [1, 0.8, 0.25]];   // slow, medium, fast
+  /* ---- Fission: the atom-splitting loop (see its entry in ATTRACTORS) ----
+     Positions are worked out fresh every frame from the time in the loop, in a unit box,
+     so nothing needs integrating. Dots are shared out: most make the nucleons (each a little
+     ball of dots), then the electron rings and electrons, four neutrons (one incoming, three
+     released) and the energy shell. */
+  var FIS_T = 12600, FIS_NEW = 11000, FIS_NN = 56, FIS = null, FIS_O = [0, 0, 0];   // loop length, when the next atom gathers
+  function fisFrac(x) { return x - Math.floor(x); }
+  function fisHash(i, seed) { return fisFrac(Math.sin(i * 12.9898 + seed * 78.233) * 43758.5453); }   // a fixed random 0..1 per dot
+  function fisSphere(m, M, o) {               // point m of M spread evenly over a unit sphere
+    var y = 1 - 2 * (m + 0.5) / M, r = Math.sqrt(Math.max(0, 1 - y * y)), th = m * 2.39996;
+    o[0] = Math.cos(th) * r; o[1] = y; o[2] = Math.sin(th) * r;
+  }
+  function fisSetup() {
+    if (FIS) return FIS;
+    var nuc = [], i;
+    for (i = 0; i < FIS_NN; i++) {           // nucleons packed in a ball, from a fixed pseudo-random sequence
+      var h1 = fisFrac(Math.sin(i * 12.9898) * 43758.5453), h2 = fisFrac(Math.sin(i * 78.233) * 12345.678), h3 = fisFrac(Math.sin(i * 39.425) * 24634.6345);
+      var r = 0.27 * Math.cbrt(0.12 + 0.88 * h1), th = h2 * 6.283, cz = h3 * 2 - 1, sq = Math.sqrt(1 - cz * cz);
+      nuc.push({ x: r * sq * Math.cos(th), y: r * sq * Math.sin(th), z: r * cz, p: i % 2 === 0, side: 1 });
+    }
+    nuc.slice().sort(function (a, b) { return a.x - b.x; }).forEach(function (n, j) { n.side = j < FIS_NN / 2 ? -1 : 1; });
+    var mean = { '-1': [0, 0, 0], '1': [0, 0, 0] }, half = FIS_NN / 2;
+    nuc.forEach(function (n) { var m = mean[n.side]; m[0] += n.x / half; m[1] += n.y / half; m[2] += n.z / half; });
+    var dirs = [];
+    for (i = 0; i < 3; i++) { var a = i / 3 * 6.283 + 0.5, el = (i - 1) * 0.6; dirs.push([Math.cos(a) * Math.cos(el), Math.sin(el), Math.sin(a) * Math.cos(el)]); }
+    FIS = { nuc: nuc, mean: mean, dirs: dirs };
+    return FIS;
+  }
+  // the blast cools from white through yellow, orange and deep red to smoke; h runs 0 to 1
+  var FIS_HEAT = [[0, 1, 1, 0.92], [0.18, 1, 0.86, 0.45], [0.42, 1, 0.5, 0.15], [0.68, 0.78, 0.2, 0.12], [1, 0.3, 0.22, 0.3]];
+  function fisHeat(h, k, dim) {
+    var i = 1;
+    while (i < FIS_HEAT.length - 1 && h > FIS_HEAT[i][0]) i++;
+    var a = FIS_HEAT[i - 1], b = FIS_HEAT[i], u = clamp01((h - a[0]) / (b[0] - a[0]));
+    BR[k] = (a[1] + (b[1] - a[1]) * u) * dim; BG[k] = (a[2] + (b[2] - a[2]) * u) * dim; BB[k] = (a[3] + (b[3] - a[3]) * u) * dim;
+  }
+  function fissionFrame(A, now) {
+    var F = fisSetup(), t = (now - A.ts) % FIS_T, S = A.S, o = FIS_O, k;
+    var nN = (N * 0.4) | 0, per = Math.max(1, Math.floor(nN / FIS_NN)), nRing = (N * 0.06) | 0, nEl = (N * 0.03) | 0, nNeu = (N * 0.04) | 0;
+    var b1 = nN + nRing, b2 = b1 + nEl, b3 = b2 + nNeu, perNeu = Math.ceil(nNeu / 4), nX = N - b3;
+    var x0 = (nX * 0.06) | 0, x1 = x0 + ((nX * 0.1) | 0), x2 = x1 + ((nX * 0.4) | 0), x3 = x2 + ((nX * 0.2) | 0);
+    var hit = ease(clamp01((t - 1700) / 800)), split = t > 2500 && t <= FIS_NEW, s = (t - 2500) / 1000;
+    var fade = 1 - clamp01((t - 2900) / 800), reform = clamp01((t - FIS_NEW) / 1000);
+    var D = 0.2 + s * 0.55 + s * s * 0.45;                       // the halves push apart, faster and faster
+    var ringVis = t > FIS_NEW ? reform : 1 - clamp01((t - 1700) / 900), ringR = 0.8 * (1 + 0.9 * hit);
+    // the blast, timed from the split
+    var e = t - 2500, live = e >= 0 && t <= FIS_NEW, gone = 1 - clamp01((e - 7000) / 1500);
+    var heat = clamp01(e / 6500), yc = -0.6 * ease(clamp01(e / 6500)), GND = 0.75;
+    var rf = 0.12 + 0.33 * ease(clamp01(e / 1500)), mt = ease(clamp01((e - 1200) / 2500));
+    var grow = ease(clamp01((e - 1200) / 5000)), Rt = 0.2 + 0.32 * grow, rt = 0.13 + 0.1 * grow;
+    var stemUp = ease(clamp01((e - 1500) / 2500)), stemTop = GND + (yc + 0.08 - GND) * stemUp;
+    var on = ptr.on && ptr.field && !overNav && !reduce, PR = 38, PR2 = PR * PR;
+    for (k = 0; k < N; k++) {
+      var x, y, z, sz, R = 1, G = 1, B = 1, own = false;
+      if (k < nN) {                                              // nucleons: little balls of dots
+        var j = k % FIS_NN, n = F.nuc[j], cx, cy, cz;
+        fisSphere((k / FIS_NN) | 0, per, o);
+        if (!split) {
+          if (t > FIS_NEW) { cx = n.x; cy = n.y; cz = n.z; sz = reform; }   // a fresh atom gathering
+          else {                                                 // calm, then hit: wobble and stretch into a peanut
+            var jig = 0.006 * Math.sin(now * 0.02 + j * 1.7) + 0.02 * hit * Math.sin(now * 0.045 + n.x * 20);
+            var pinch = 1 - 0.32 * hit * (1 - Math.min(1, Math.abs(n.x) / 0.27));
+            cx = n.x * (1 + 0.9 * hit) + n.side * 0.12 * hit + jig; cy = n.y * pinch + jig * 0.7; cz = n.z * pinch;
+            sz = 1;
+          }
+        } else {                                                 // two fragments flying apart, swallowed by the fireball
+          var mn = F.mean[n.side];
+          cx = n.side * D + (n.x - mn[0]); cy = n.y - mn[1]; cz = n.z - mn[2];
+          sz = fade;
+        }
+        x = cx + o[0] * 0.058; y = cy + o[1] * 0.058; z = cz + o[2] * 0.058;
+        // dimmer and smaller than they look: the balls overlap and the dots add up, so at full
+        // strength the middle of the nucleus burns to white instead of staying red and blue
+        if (n.p) { R = 0.72; G = 0.18; B = 0.32; } else { R = 0.26; G = 0.52; B = 0.72; }
+        sz *= 0.72;
+      } else if (k < b2) {                                       // electron rings, and the electrons racing round them
+        var q = k - nN, el = k >= b1, ring = q % 3, a;
+        if (el) a = now * 0.0034 * (1 + ring * 0.35) + ring * 2.1 + ((q / 3) | 0) % 9 * 0.012;
+        else a = ((q / 3) | 0) / (nRing / 3) * 6.283;
+        var rr = ringR * (el ? 1 + ((q * 7) % 5 - 2) * 0.008 : 1), lx = Math.cos(a) * rr, lz = Math.sin(a) * rr;
+        var inc = [0.25, 1.2, -1.2][ring], ph = ring * 1.05, ly = -lz * Math.sin(inc); lz = lz * Math.cos(inc);
+        x = lx * Math.cos(ph) + lz * Math.sin(ph); y = ly; z = -lx * Math.sin(ph) + lz * Math.cos(ph);
+        if (el) { R = 0.62; G = 1; B = 0.72; sz = 1.7 * ringVis; } else { R = 0.25; G = 0.6; B = 0.95; sz = 0.6 * ringVis; }
+      } else if (k < b3) {                                       // neutrons: one coming in, three let loose
+        var q2 = k - b2, bn = q2 % 4, cx2, cy2, cz2;
+        fisSphere((q2 / 4) | 0, perNeu, o);
+        if (bn === 0) {
+          var u = clamp01((t - 400) / 1300); u *= u;            // speeding in
+          cx2 = -1.7 + 1.4 * u; cy2 = -0.25 * (1 - u); cz2 = 0.35 * (1 - u); sz = t > 400 && t < 1750 ? 1.2 : 0;
+        } else {
+          var dir = F.dirs[bn - 1], dd = split ? s * 1.5 : 0;
+          cx2 = dir[0] * dd; cy2 = dir[1] * dd; cz2 = dir[2] * dd; sz = split ? 1.2 * (1 - clamp01((t - 3600) / 800)) : 0;
+        }
+        x = cx2 + o[0] * 0.055; y = cy2 + o[1] * 0.055; z = cz2 + o[2] * 0.055;
+        R = 0.72; G = 0.9; B = 1;
+      } else if (!live) {                                        // the blast waits for the split
+        x = y = z = 0; sz = 0;
+      } else {
+        var qx = k - b3; own = true;
+        if (qx < x0) {                                           // the flash: a blinding white core
+          fisSphere(qx, x0, o); var rc = 0.05 + 0.3 * ease(clamp01(e / 700));
+          x = o[0] * rc; y = o[1] * rc + yc; z = o[2] * rc;
+          sz = 2.4 * (1 - clamp01(e / 1100)); BR[k] = 1; BG[k] = 1; BB[k] = 0.95;
+        } else if (qx < x1) {                                    // the shock front, racing out
+          fisSphere(qx - x0, x1 - x0, o); var us = clamp01(e / 1900), rs = 0.1 + ease(us) * 1.9;
+          x = o[0] * rs; y = o[1] * rs; z = o[2] * rs;
+          sz = 1.1 * (1 - us); BR[k] = 0.8; BG[k] = 0.9; BB[k] = 1;
+        } else if (qx < x2) {                                    // fireball, rolling into the mushroom cap
+          var qi = qx - x1, M1 = x2 - x1, ua = fisHash(qi, 1) * 6.283, va = fisHash(qi, 2) * 6.283 + e * 0.0011;   // independent angles round the ring and the tube
+          fisSphere(qi, M1, o);
+          var rough = rf * (0.78 + 0.4 * fisHash(qi, 3)), sx = o[0] * rough, sy = o[1] * rough, sz0 = o[2] * rough;   // a boiling, uneven fireball
+          // a ring vortex: dots climb the outside of the tube and roll back down the inside
+          var rtj = rt * (0.7 + 0.5 * fisHash(qi, 4)), tr2 = Rt + rtj * Math.cos(va), tx3 = Math.cos(ua) * tr2, tz3 = Math.sin(ua) * tr2, ty3 = -rtj * Math.sin(va) * 0.9;
+          x = sx + (tx3 - sx) * mt; y = yc + sy + (ty3 - sy) * mt; z = sz0 + (tz3 - sz0) * mt;
+          var core = 0.5 - 0.5 * Math.cos(va) * mt;              // the inner, rolling side stays hotter
+          fisHeat(clamp01(heat * (0.75 + 0.5 * (1 - core))), k, 0.9);
+          sz = 1.15 * gone;
+        } else if (qx < x3) {                                    // the stem, dust and smoke drawn up into the cap
+          var qs = qx - x2, hp = fisFrac(fisHash(qs, 5) + e * 0.00009), ang = fisHash(qs, 6) * 6.283 + e * 0.0006;
+          var rad = (0.06 + 0.12 * Math.pow(1 - hp, 3)) * (0.7 + 0.3 * stemUp) * Math.sqrt(fisHash(qs, 7));   // filled, not just a skin
+          x = Math.cos(ang) * rad; z = Math.sin(ang) * rad; y = GND + (stemTop - GND) * hp;
+          fisHeat(clamp01(heat * 0.8 + 0.25 + (1 - hp) * 0.25), k, 0.8);
+          sz = stemUp > 0.02 ? 0.9 * gone : 0;
+        } else {                                                 // the base surge rolling out across the ground
+          var qg = qx - x3, ag = fisHash(qg, 8) * 6.283, ug = clamp01((e - 250) / 4200);
+          var rg = 0.08 + 1.35 * Math.pow(ease(ug), 0.8) * (0.55 + 0.6 * fisHash(qg, 9));
+          x = Math.cos(ag) * rg; z = Math.sin(ag) * rg; y = GND - fisHash(qg, 10) * 0.12 * (1 - ug * 0.4);
+          fisHeat(clamp01(0.45 + heat * 0.6), k, 0.75);
+          sz = e > 250 ? 0.85 * gone * (1 - ug * 0.35) : 0;
+        }
+      }
+      if (!own) { BR[k] = R; BG[k] = G; BB[k] = B; }
+      put3(A, k, x * S, y * S, z * S, A.base * sz, undefined, A.zr);
+      if (on) {                                                  // the shooting star nudges dots aside as it passes
+        var dx = tx[k] - ptr.x, dy = ty[k] - ptr.y, d2 = dx * dx + dy * dy;
+        if (d2 < PR2) { var d = Math.sqrt(d2) + 0.01, fo = 1 - d / PR, pu = 16 * fo * fo; tx[k] += dx / d * pu; ty[k] += dy / d * pu; }
+      }
+    }
+  }
   function attStep(at, k, h) {               // one midpoint (RK2) step; returns the speed
     var x = AX[k], y = AY[k], z = AZ[k], o = ATT_O;
     at.f(x, y, z, o);
@@ -565,6 +711,9 @@ footer a:hover{text-decoration:underline}
   // Put the whole swarm on attractor `ai`: a few dozen seeds settle onto it, then each seed
   // lays down a run of dots along its own path, so the dots start out as flowing streams.
   function seedAttractor(A, ai) {
+    if (ATTRACTORS[ai].script) {             // a scripted loop: nothing to seed, just start its clock
+      A.ai = ai; A.ts = performance.now(); A.vref = 1; A.next = A.ts + (ATTRACTORS[ai].hold || ATT_MORPH); return;
+    }
     var at = ATTRACTORS[ai], S = 40, per = Math.ceil(N / S), k = 0, i, j, vs = 0, tmp = N - 1;
     for (i = 0; i < S && k < N; i++) {
       AX[tmp] = at.c[0] + rnd(-0.4, 0.4) / at.k; AY[tmp] = at.c[1] + rnd(-0.4, 0.4) / at.k; AZ[tmp] = at.c[2] + rnd(-0.4, 0.4) / at.k;
@@ -607,6 +756,7 @@ footer a:hover{text-decoration:underline}
     A.ly += ((on ? (ptr.x - A.cx) / box.w * 1.1 : 0) - A.ly) * 0.04;
     A.lp += ((on ? (ptr.y - A.cy) / box.h * 0.7 : 0) - A.lp) * 0.04;
     view3(A, A.yaw + A.ly, (at.pitch === undefined ? 0.32 : at.pitch) + A.lp);
+    if (at.script) { at.script(A, now); return; }
     var lensE = at.lens ? at.lens * A.S : 0, lensE2 = lensE * lensE, hole = at.lens ? proj3(A, 0, 0, 0) : null;
     var h = reduce ? 0 : at.dt * dt / 16.7, S = A.S, vr = 1 / A.vref;
     // The shooting star punches through the flow: dots in a narrow band around it are thrown
@@ -1661,28 +1811,30 @@ footer a:hover{text-decoration:underline}
   var HEX = '0123456789ABCDEF';
   var TAGS = ['ACCESS GRANTED', 'SIGNAL LOST', 'DECRYPTING', 'root@flick', 'ERR 0x1F', 'sudo make art', 'OVERRIDE', '0xDEADBEEF', 'sys.flick', 'BUFFER OVERFLOW'];
   // how much of the screen rains code on each source: busier on Chaos and the camera
-  var RAIN_AMT = { wordmark: 0.06, intro: 0.04, introIcons: 0.05, intro2: 0.05, systems: 0.08, chaos: 0.11, photography: 0.1 };
+  var RAIN_AMT = { wordmark: 0.17, intro: 0.13, introIcons: 0.15, intro2: 0.15, systems: 0.2, chaos: 0.26, photography: 0.24 };
   var codeCv = null, cx2 = null, rain = { cols: [], cell: 16, next: 0, last: 0 }, bursts = [], reads = [];
-  var TRAIL = 16, RAIN_STEP = 150;   // characters per trail, ms per step
+  var RAIN_STEP = 110;   // ms per step
   function codeResize() {
     codeCv = codeCv || document.getElementById('code');
     if (!codeCv) return;
     cx2 = cx2 || codeCv.getContext('2d');
     codeCv.width = Math.round(W * DPR); codeCv.height = Math.round(H * DPR);
     cx2.setTransform(DPR, 0, 0, DPR, 0, 0);
-    rain.cell = W < 700 ? 13 : 16; rain.cols = [];
+    rain.cell = W < 700 ? 7 : 8; rain.cols = [];   // tiny, almost microscopic code
     rain.bottom = nav.getBoundingClientRect().top - hero.getBoundingClientRect().top - 8;   // the code stays above the channel labels
     for (var c = 0, n = Math.ceil(W / rain.cell); c < n; c++) rain.cols.push(newCol(true));
   }
   function newCol(anywhere) {
-    var r = Math.random();
-    return { y: anywhere ? rnd(-H, H) : rnd(-H * 0.5, 0), v: rnd(0.45, 0.9), on: Math.random() < (RAIN_AMT[current] || 0.2),
-             hex: r < 0.18, c: r < 0.6 ? 0 : r < 0.85 ? 1 : r < 0.96 ? 2 : 3, trail: [] };
+    // mostly tiny code, some medium and a few big; big ones run in shorter bursts
+    var r = Math.random(), q = Math.random(), sz = q < 0.08 ? 18 : q < 0.26 ? 12 : rain.cell;
+    var len = sz > 12 ? 4 + ((Math.random() * 9) | 0) : 6 + ((Math.random() * 22) | 0), tl = sz * len;   // trail length in characters
+    return { y: anywhere ? rnd(-tl, H) : rnd(-tl, 0), v: rnd(0.55, 1.1), on: Math.random() < (RAIN_AMT[current] || 0.2),
+             hex: r < 0.18, c: r < 0.6 ? 0 : r < 0.85 ? 1 : r < 0.96 ? 2 : 3, trail: [], sz: sz, len: len, gap: 0 };
   }
   function glyph(hex) { return hex ? HEX[(Math.random() * 16) | 0] : Math.random() < 0.5 ? '0' : '1'; }
   function codeBurst(x, y) {                 // a click sprays ones and zeros out of the dots
     if (reduce) return;
-    for (var b = 0; b < 46 && bursts.length < 140; b++) {
+    for (var b = 0; b < 90 && bursts.length < 260; b++) {
       var a = rnd(0, 6.283), v = rnd(1.5, 7);
       bursts.push({ x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rnd(26, 60), c: (Math.random() * 4) | 0, hex: Math.random() < 0.3 });
     }
@@ -1697,23 +1849,28 @@ footer a:hover{text-decoration:underline}
       rain.next = now + RAIN_STEP; rain.last = now;
       for (i = 0; i < rain.cols.length; i++) {
         col = rain.cols[i];
-        col.y += cell * col.v;
-        if (col.y > (rain.bottom || H) + cell * TRAIL) { rain.cols[i] = newCol(false); continue; }   // gone once its whole trail has passed
-        if (col.on && col.y >= 0 && col.y < (rain.bottom || H)) { col.trail.unshift([glyph(col.hex), col.y]); if (col.trail.length > TRAIL) col.trail.pop(); }
+        col.y += col.sz * col.v;
+        if (col.y > (rain.bottom || H) + col.sz * col.len) { rain.cols[i] = newCol(false); continue; }   // gone once its whole trail has passed
+        if (col.on && col.y >= 0 && col.y < (rain.bottom || H)) {
+          if (col.gap > 0) { col.gap--; col.trail.unshift(null); }          // chopped up: now and then it skips a few characters
+          else { if (Math.random() < 0.1) col.gap = 1 + ((Math.random() * 4) | 0); col.trail.unshift([glyph(col.hex), col.y]); }
+          if (col.trail.length > col.len) col.trail.pop();
+        }
       }
     }
     // draw every trail: a bright head, then the column's colour fading out by age, smoothly between steps
     var fr = clamp01((now - rain.last) / RAIN_STEP);
-    g.font = '600 ' + (cell - 2) + 'px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+    var font = 0;
     for (i = 0; i < rain.cols.length; i++) {
       col = rain.cols[i];
       if (!col.on || !col.trail.length) continue;
+      if (col.sz !== font) { font = col.sz; g.font = (font > 12 ? '700 ' : font > 8 ? '600 ' : '500 ') + (font - 1) + 'px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'; }
       var x = i * cell, rgb = NEON_CSS[col.c];
       for (j = col.trail.length - 1; j >= 0; j--) {
-        var age = (j + fr) / TRAIL;
-        if (age >= 1) continue;
+        var e = col.trail[j], age = (j + fr) / col.len;
+        if (!e || age >= 1) continue;
         g.fillStyle = j === 0 ? 'rgba(242,255,245,' + (1 - age * 0.5).toFixed(3) + ')' : 'rgba(' + rgb + ',' + (0.85 * Math.pow(1 - age, 1.4)).toFixed(3) + ')';
-        g.fillText(col.trail[j][0], x, col.trail[j][1]);
+        g.fillText(e[0], x, e[1]);
       }
     }
     if (glitching && Math.random() < 0.35 && reads.length < 24) {   // glitch readouts: hex and words in the torn bands
@@ -1725,7 +1882,7 @@ footer a:hover{text-decoration:underline}
       }
     }
     if (reads.length) {
-      g.font = '600 12px ui-monospace, Menlo, Consolas, monospace';
+      g.font = '500 7px ui-monospace, Menlo, Consolas, monospace';
       for (i = reads.length - 1; i >= 0; i--) {
         var rd = reads[i], e1 = (now - rd.t0) / 420;
         if (e1 >= 1) { reads.splice(i, 1); continue; }
@@ -1750,7 +1907,7 @@ footer a:hover{text-decoration:underline}
       g.textAlign = 'start';
     }
     if (bursts.length) {
-      g.font = '700 13px ui-monospace, Menlo, Consolas, monospace';
+      g.font = '600 8px ui-monospace, Menlo, Consolas, monospace';
       for (i = bursts.length - 1; i >= 0; i--) {
         var p = bursts[i];
         p.x += p.vx; p.y += p.vy; p.vx *= 0.94; p.vy = p.vy * 0.94 + 0.08; p.life--;
