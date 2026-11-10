@@ -550,13 +550,13 @@ footer a:hover{text-decoration:underline}
         if (r <= 1) { var u = clamp01((r - 0.08) / 0.92); BR[k] = 1; BG[k] = 0.97 - 0.3 * u; BB[k] = 0.92 - 0.72 * u; return 1.7 - 0.8 * u; }
         BR[k] = 0.62; BG[k] = 0.2; BB[k] = 0.85; return 0.7;
       } },
-    // Not a flow at all: an atom splitting, played as a 12.6 s loop. Electrons circle a nucleus
-    // of red protons and blue neutrons; a neutron streaks in and hits it; the nucleus wobbles,
-    // stretches into a peanut and snaps in two, three neutrons shoot out, and it goes off like a
-    // hydrogen bomb, slowly: a white flash and shock front, a fireball that climbs and rolls into
-    // a mushroom cap on a rising stem, a surge rolling out over the ground, all cooling from
-    // white through orange and red to smoke. Then a fresh atom gathers. Seen nearly side on.
-    { name: 'FISSION', params: 'n + U-235  ->  Ba + Kr + 3n  ->  fireball', hold: 25200, pitch: 0.1, script: fissionFrame }
+    // Not a flow at all: an atom splitting. Electrons circle a nucleus of red protons and blue
+    // neutrons; a neutron streaks in and hits it; the nucleus wobbles, stretches into a peanut
+    // and snaps in two, three neutrons shoot out, and it goes off like a hydrogen bomb, slowly:
+    // a white flash and shock front, a fireball that climbs and rolls into a mushroom cap on a
+    // rising stem, a surge rolling out over the ground, all cooling from white through orange
+    // and red to smoke. Then it all rewinds back into the atom, and loops. Seen nearly side on.
+    { name: 'FISSION', params: 'n + U-235  ->  Ba + Kr + 3n  ->  fireball  ->  rewind', hold: 30000, pitch: 0.1, script: fissionFrame }
   ];
   var ATT_O = [0, 0, 0], ATT_MORPH = 16000;
   var ATT_COLS = [[0.25, 0.84, 1], [1, 0.3, 0.82], [1, 0.8, 0.25]];   // slow, medium, fast
@@ -565,8 +565,9 @@ footer a:hover{text-decoration:underline}
      so nothing needs integrating. Dots are shared out: most make the nucleons (each a little
      ball of dots), then the electron rings and electrons, four neutrons (one incoming, three
      released) and the energy shell. */
-  var FIS_T = 12600, FIS_NEW = 11000, FIS_NN = 56, FIS = null, FIS_O = [0, 0, 0];   // loop length, when the next atom gathers
+  var FIS_FWD = 10500, FIS_BACK = 4500, FIS_NN = 56, FIS = null, FIS_O = [0, 0, 0];   // ms played forward, ms to rewind
   function fisFrac(x) { return x - Math.floor(x); }
+  function fisOut(u) { u = clamp01(u); return 1 - (1 - u) * (1 - u) * (1 - u); }   // fast start, slow finish: a blast, not a swell
   function fisHash(i, seed) { return fisFrac(Math.sin(i * 12.9898 + seed * 78.233) * 43758.5453); }   // a fixed random 0..1 per dot
   function fisSphere(m, M, o) {               // point m of M spread evenly over a unit sphere
     var y = 1 - 2 * (m + 0.5) / M, r = Math.sqrt(Math.max(0, 1 - y * y)), th = m * 2.39996;
@@ -597,18 +598,21 @@ footer a:hover{text-decoration:underline}
     BR[k] = (a[1] + (b[1] - a[1]) * u) * dim; BG[k] = (a[2] + (b[2] - a[2]) * u) * dim; BB[k] = (a[3] + (b[3] - a[3]) * u) * dim;
   }
   function fissionFrame(A, now) {
-    var F = fisSetup(), t = (now - A.ts) % FIS_T, S = A.S, o = FIS_O, k;
+    // A seamless loop: play forward through the blast, then rewind smoothly back into the atom
+    // (easing to a stop at each turn), and go again, so it never cuts or fades to a new start.
+    var cyc = (now - A.ts) % (FIS_FWD + FIS_BACK);
+    var F = fisSetup(), t = cyc < FIS_FWD ? cyc : FIS_FWD * (1 - ease((cyc - FIS_FWD) / FIS_BACK)), S = A.S, o = FIS_O, k;
     var nN = (N * 0.4) | 0, per = Math.max(1, Math.floor(nN / FIS_NN)), nRing = (N * 0.06) | 0, nEl = (N * 0.03) | 0, nNeu = (N * 0.04) | 0;
     var b1 = nN + nRing, b2 = b1 + nEl, b3 = b2 + nNeu, perNeu = Math.ceil(nNeu / 4), nX = N - b3;
     var x0 = (nX * 0.06) | 0, x1 = x0 + ((nX * 0.1) | 0), x2 = x1 + ((nX * 0.4) | 0), x3 = x2 + ((nX * 0.2) | 0);
-    var hit = ease(clamp01((t - 1700) / 800)), split = t > 2500 && t <= FIS_NEW, s = (t - 2500) / 1000;
-    var fade = 1 - clamp01((t - 2900) / 800), reform = clamp01((t - FIS_NEW) / 1000);
+    var hit = ease(clamp01((t - 1700) / 800)), split = t > 2500, s = (t - 2500) / 1000;
+    var fade = 1 - clamp01((t - 2900) / 800);
     var D = 0.2 + s * 0.55 + s * s * 0.45;                       // the halves push apart, faster and faster
-    var ringVis = t > FIS_NEW ? reform : 1 - clamp01((t - 1700) / 900), ringR = 0.8 * (1 + 0.9 * hit);
+    var ringVis = 1 - clamp01((t - 1700) / 900), ringR = 0.8 * (1 + 0.9 * hit);
     // the blast, timed from the split
-    var e = t - 2500, live = e >= 0 && t <= FIS_NEW, gone = 1 - clamp01((e - 7000) / 1500);
+    var e = t - 2500, live = e >= 0, gone = 1 - clamp01((e - 7000) / 1500);
     var heat = clamp01(e / 6500), yc = -0.6 * ease(clamp01(e / 6500)), GND = 0.75;
-    var rf = 0.12 + 0.33 * ease(clamp01(e / 1500)), mt = ease(clamp01((e - 1200) / 2500));
+    var rf = 0.12 + 0.36 * fisOut(e / 700), mt = ease(clamp01((e - 1200) / 2500)), boil = 0.04 * (1 - 0.5 * heat);
     var grow = ease(clamp01((e - 1200) / 5000)), Rt = 0.2 + 0.32 * grow, rt = 0.13 + 0.1 * grow;
     var stemUp = ease(clamp01((e - 1500) / 2500)), stemTop = GND + (yc + 0.08 - GND) * stemUp;
     var on = ptr.on && ptr.field && !overNav && !reduce, PR = 38, PR2 = PR * PR;
@@ -617,14 +621,11 @@ footer a:hover{text-decoration:underline}
       if (k < nN) {                                              // nucleons: little balls of dots
         var j = k % FIS_NN, n = F.nuc[j], cx, cy, cz;
         fisSphere((k / FIS_NN) | 0, per, o);
-        if (!split) {
-          if (t > FIS_NEW) { cx = n.x; cy = n.y; cz = n.z; sz = reform; }   // a fresh atom gathering
-          else {                                                 // calm, then hit: wobble and stretch into a peanut
-            var jig = 0.006 * Math.sin(now * 0.02 + j * 1.7) + 0.02 * hit * Math.sin(now * 0.045 + n.x * 20);
-            var pinch = 1 - 0.32 * hit * (1 - Math.min(1, Math.abs(n.x) / 0.27));
-            cx = n.x * (1 + 0.9 * hit) + n.side * 0.12 * hit + jig; cy = n.y * pinch + jig * 0.7; cz = n.z * pinch;
-            sz = 1;
-          }
+        if (!split) {                                            // calm, then hit: wobble and stretch into a peanut
+          var jig = 0.006 * Math.sin(now * 0.02 + j * 1.7) + 0.02 * hit * Math.sin(now * 0.045 + n.x * 20);
+          var pinch = 1 - 0.32 * hit * (1 - Math.min(1, Math.abs(n.x) / 0.27));
+          cx = n.x * (1 + 0.9 * hit) + n.side * 0.12 * hit + jig; cy = n.y * pinch + jig * 0.7; cz = n.z * pinch;
+          sz = 1;
         } else {                                                 // two fragments flying apart, swallowed by the fireball
           var mn = F.mean[n.side];
           cx = n.side * D + (n.x - mn[0]); cy = n.y - mn[1]; cz = n.z - mn[2];
@@ -660,29 +661,41 @@ footer a:hover{text-decoration:underline}
       } else {
         var qx = k - b3; own = true;
         if (qx < x0) {                                           // the flash: a blinding white core
-          fisSphere(qx, x0, o); var rc = 0.05 + 0.3 * ease(clamp01(e / 700));
+          fisSphere(qx, x0, o); var rc = 0.05 + 0.5 * fisOut(e / 350);
           x = o[0] * rc; y = o[1] * rc + yc; z = o[2] * rc;
-          sz = 2.4 * (1 - clamp01(e / 1100)); BR[k] = 1; BG[k] = 1; BB[k] = 0.95;
+          sz = 3.2 * Math.pow(1 - clamp01(e / 700), 1.5); BR[k] = 1; BG[k] = 1; BB[k] = 0.95;
         } else if (qx < x1) {                                    // the shock front, racing out
-          fisSphere(qx - x0, x1 - x0, o); var us = clamp01(e / 1900), rs = 0.1 + ease(us) * 1.9;
+          fisSphere(qx - x0, x1 - x0, o); var us = clamp01(e / 1100), rs = 0.1 + fisOut(us) * 2;
           x = o[0] * rs; y = o[1] * rs; z = o[2] * rs;
           sz = 1.1 * (1 - us); BR[k] = 0.8; BG[k] = 0.9; BB[k] = 1;
         } else if (qx < x2) {                                    // fireball, rolling into the mushroom cap
-          var qi = qx - x1, M1 = x2 - x1, ua = fisHash(qi, 1) * 6.283, va = fisHash(qi, 2) * 6.283 + e * 0.0011;   // independent angles round the ring and the tube
+          var qi = qx - x1, M1 = x2 - x1, ua = fisHash(qi, 1) * 6.283, va = fisHash(qi, 2) * 6.283 + e * 0.0011 * (0.5 + fisHash(qi, 11));   // independent angles round the ring and the tube; each dot rolls at its own pace
           fisSphere(qi, M1, o);
           var rough = rf * (0.78 + 0.4 * fisHash(qi, 3)), sx = o[0] * rough, sy = o[1] * rough, sz0 = o[2] * rough;   // a boiling, uneven fireball
           // a ring vortex: dots climb the outside of the tube and roll back down the inside
           var rtj = rt * (0.7 + 0.5 * fisHash(qi, 4)), tr2 = Rt + rtj * Math.cos(va), tx3 = Math.cos(ua) * tr2, tz3 = Math.sin(ua) * tr2, ty3 = -rtj * Math.sin(va) * 0.9;
-          x = sx + (tx3 - sx) * mt; y = yc + sy + (ty3 - sy) * mt; z = sz0 + (tz3 - sz0) * mt;
+          // churning: every dot jitters on its own quick rhythm, so the cloud boils instead of gliding
+          var bp = fisHash(qi, 12) * 40;
+          x = sx + (tx3 - sx) * mt + Math.sin(now * 0.007 + bp) * boil;
+          y = yc + sy + (ty3 - sy) * mt + Math.sin(now * 0.0083 + bp * 1.3) * boil;
+          z = sz0 + (tz3 - sz0) * mt + Math.sin(now * 0.0061 + bp * 0.7) * boil;
           var core = 0.5 - 0.5 * Math.cos(va) * mt;              // the inner, rolling side stays hotter
-          fisHeat(clamp01(heat * (0.75 + 0.5 * (1 - core))), k, 0.9);
+          var flick = (fisHash(qi, 13) - 0.5) * 0.3 + 0.08 * Math.sin(now * 0.012 + bp);   // uneven, flickering hot spots
+          fisHeat(clamp01(heat * (0.75 + 0.5 * (1 - core)) + flick), k, 0.9);
           sz = 1.15 * gone;
         } else if (qx < x3) {                                    // the stem, dust and smoke drawn up into the cap
           var qs = qx - x2, hp = fisFrac(fisHash(qs, 5) + e * 0.00009), ang = fisHash(qs, 6) * 6.283 + e * 0.0006;
           var rad = (0.06 + 0.12 * Math.pow(1 - hp, 3)) * (0.7 + 0.3 * stemUp) * Math.sqrt(fisHash(qs, 7));   // filled, not just a skin
-          x = Math.cos(ang) * rad; z = Math.sin(ang) * rad; y = GND + (stemTop - GND) * hp;
+          var sp2 = fisHash(qs, 14) * 40;
+          x = Math.cos(ang) * rad + Math.sin(now * 0.008 + sp2) * boil * 0.6; z = Math.sin(ang) * rad; y = GND + (stemTop - GND) * hp;
           fisHeat(clamp01(heat * 0.8 + 0.25 + (1 - hp) * 0.25), k, 0.8);
           sz = stemUp > 0.02 ? 0.9 * gone : 0;
+        } else if (fisHash(qx, 15) < 0.3) {                       // debris: glowing sparks flung up and falling back
+          var ad = fisHash(qx, 16) * 6.283, vh = 0.3 + 1.1 * fisHash(qx, 17), vu = 0.7 + 1.2 * fisHash(qx, 18), tau = e / 1000;
+          x = Math.cos(ad) * vh * tau; z = Math.sin(ad) * vh * tau; y = -vu * tau + 0.55 * tau * tau;   // thrown, then pulled down
+          var dl = clamp01(tau / 3.2);
+          fisHeat(clamp01(0.05 + dl * 0.85), k, 1.15);
+          sz = y < GND ? 1.25 * (1 - dl) * (0.6 + 0.4 * Math.sin(now * 0.03 + qx)) : 0;
         } else {                                                 // the base surge rolling out across the ground
           var qg = qx - x3, ag = fisHash(qg, 8) * 6.283, ug = clamp01((e - 250) / 4200);
           var rg = 0.08 + 1.35 * Math.pow(ease(ug), 0.8) * (0.55 + 0.6 * fisHash(qg, 9));
