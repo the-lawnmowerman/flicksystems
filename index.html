@@ -299,10 +299,10 @@ footer a:hover{text-decoration:underline}
     })();
   }
   var CH_HINT = coarse
-    ? { chaos: 'Tap the shapes to shatter them.', photography: 'Tap to take a shot.', systems: 'Tap for the next project.' }
-    : { chaos: 'Click the shapes to shatter them. Chain hits for a combo.',
+    ? { chaos: 'Drag through the flow to disturb it. Tap for a new attractor.', photography: 'Tap to take a shot.', systems: 'Tap for the next project.' }
+    : { chaos: 'Move through the flow to disturb it. Click to morph into a new attractor.',
         photography: 'Move to aim the camera. Click to take a shot.',
-        systems: 'Move left or right to spin through the projects. Click for the next one.' };
+        systems: 'Roll over the engine to zoom in on a project. Click to fire the next one.' };
   hint(HINT);
 
   function noField() { document.documentElement.classList.add('no-field'); canvas.style.display = 'none'; }
@@ -434,14 +434,13 @@ footer a:hover{text-decoration:underline}
   }
 
   /* Channel animations: generic little motion pictures drawn in dots.
-     Chaos: cubes, spheres and pyramids tumbling and bouncing in 3D.
+     Chaos: a strange attractor, thousands of dots riding a chaotic flow.
      Photography: a Sony A7 III in 3D whose aperture snaps shut as its lamp fires.
      Systems: scattered dots pulled into a connected network that carries
      signal, then let go back into chaos. */
   var AX = new Float32Array(N), AY = new Float32Array(N), AU = new Float32Array(N);
   var AG = new Int16Array(N), AR = new Uint8Array(N);
   var anim = null;
-  var CHAOS_COLORS = [[1, 0.24, 0.24], [1, 0.82, 0.25], [0.25, 0.84, 1], [1, 0.32, 0.85], [0.96, 0.96, 0.95]];
   var ANIM_DWELL = { chaos: 4200, photography: 5200, systems: 6000 }; // touch-screen preview time per channel
 
   function rnd(a, b) { return a + Math.random() * (b - a); }
@@ -485,207 +484,103 @@ footer a:hover{text-decoration:underline}
     ts[k] = size * p * (0.7 + 0.45 * near);
   }
 
-  /* ---- Chaos: cubes, spheres and pyramids tumbling in 3D ---- */
-  var CUBE_E = [[-1, -1, -1, 1, -1, -1], [1, -1, -1, 1, 1, -1], [1, 1, -1, -1, 1, -1], [-1, 1, -1, -1, -1, -1],
-                [-1, -1, 1, 1, -1, 1], [1, -1, 1, 1, 1, 1], [1, 1, 1, -1, 1, 1], [-1, 1, 1, -1, -1, 1],
-                [-1, -1, -1, -1, -1, 1], [1, -1, -1, 1, -1, 1], [1, 1, -1, 1, 1, 1], [-1, 1, -1, -1, 1, 1]];
-  var TET_V = [[0.9, 0.9, 0.9], [0.9, -0.9, -0.9], [-0.9, 0.9, -0.9], [-0.9, -0.9, 0.9]];
-  var TET_F = [[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]], TET_E = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]];
-  var SHAPE_SCALE = [0.68, 1, 0.75];      // cube, sphere, pyramid: roughly equal visual size
-  // A point on a unit cube, sphere or tetrahedron: on its surface if filled, on its edges if not.
-  function shape3(kind, filled) {
-    var j = function () { return rnd(-0.04, 0.04); }, f, e, a, b, c, th;
-    if (kind === 0) {
-      if (filled) {
-        var ax = (Math.random() * 3) | 0, sd = Math.random() < 0.5 ? -1 : 1, u = rnd(-1, 1), v = rnd(-1, 1);
-        return ax === 0 ? [sd, u, v] : ax === 1 ? [u, sd, v] : [u, v, sd];
+  /* ---- Chaos: a strange attractor ----
+     Every dot is a point riding a chaotic flow, stepped forward each frame, so the
+     swarm streams round a 3D shape whose path never repeats. Colour runs cyan to
+     magenta to amber with speed. The view turns slowly and leans toward the cursor;
+     moving through the flow knocks dots off their paths, the chaos spreads them out,
+     and the attractor pulls them back in. A click, or every 16 seconds, morphs the
+     swarm into the next attractor. Each one is f(x, y, z) -> velocity, with a centre
+     and scale that fit it to a unit box (z is drawn as up). */
+  var ATTRACTORS = [
+    { name: 'LORENZ', params: 'sigma 10  rho 28  beta 8/3', dt: 0.0042, c: [0, 0, 25], k: 1 / 23,
+      f: function (x, y, z, o) { o[0] = 10 * (y - x); o[1] = x * (28 - z) - y; o[2] = x * y - 8 / 3 * z; } },
+    { name: 'AIZAWA', params: 'a .95  b .7  c .6  d 3.5  e .25  f .1', dt: 0.011, c: [0, 0, 0.55], k: 1 / 1.3,
+      f: function (x, y, z, o) {
+        o[0] = (z - 0.7) * x - 3.5 * y; o[1] = 3.5 * x + (z - 0.7) * y;
+        o[2] = 0.6 + 0.95 * z - z * z * z / 3 - (x * x + y * y) * (1 + 0.25 * z) + 0.1 * z * x * x * x;
+      } },
+    { name: 'THOMAS', params: 'b 0.208186', dt: 0.055, c: [0, 0, 0], k: 1 / 3.9,
+      f: function (x, y, z, o) { o[0] = Math.sin(y) - 0.208186 * x; o[1] = Math.sin(z) - 0.208186 * y; o[2] = Math.sin(x) - 0.208186 * z; } },
+    { name: 'HALVORSEN', params: 'a 1.89', dt: 0.005, c: [-2.5, -2.5, -2.5], k: 1 / 11,
+      f: function (x, y, z, o) {
+        o[0] = -1.89 * x - 4 * y - 4 * z - y * y; o[1] = -1.89 * y - 4 * z - 4 * x - z * z; o[2] = -1.89 * z - 4 * x - 4 * y - x * x;
+      } }
+  ];
+  var ATT_O = [0, 0, 0], ATT_MORPH = 16000;
+  var ATT_COLS = [[0.25, 0.84, 1], [1, 0.3, 0.82], [1, 0.8, 0.25]];   // slow, medium, fast
+  function attStep(at, k, h) {               // one midpoint (RK2) step; returns the speed
+    var x = AX[k], y = AY[k], z = AZ[k], o = ATT_O;
+    at.f(x, y, z, o);
+    var mx = x + o[0] * h * 0.5, my = y + o[1] * h * 0.5, mz = z + o[2] * h * 0.5;
+    at.f(mx, my, mz, o);
+    AX[k] = x + o[0] * h; AY[k] = y + o[1] * h; AZ[k] = z + o[2] * h;
+    return Math.sqrt(o[0] * o[0] + o[1] * o[1] + o[2] * o[2]);
+  }
+  // Put the whole swarm on attractor `ai`: a few dozen seeds settle onto it, then each seed
+  // lays down a run of dots along its own path, so the dots start out as flowing streams.
+  function seedAttractor(A, ai) {
+    var at = ATTRACTORS[ai], S = 40, per = Math.ceil(N / S), k = 0, i, j, vs = 0, tmp = N - 1;
+    for (i = 0; i < S && k < N; i++) {
+      AX[tmp] = at.c[0] + rnd(-0.4, 0.4) / at.k; AY[tmp] = at.c[1] + rnd(-0.4, 0.4) / at.k; AZ[tmp] = at.c[2] + rnd(-0.4, 0.4) / at.k;
+      for (j = 0; j < 700; j++) attStep(at, tmp, at.dt);          // settle onto the attractor
+      var sx = AX[tmp], sy = AY[tmp], sz2 = AZ[tmp];
+      for (j = 0; j < per && k < N - 1; j++, k++) {
+        AX[k] = sx; AY[k] = sy; AZ[k] = sz2;
+        var v = attStep(at, k, at.dt * 2);                       // two steps' spacing between dots in a stream
+        sx = AX[k]; sy = AY[k]; sz2 = AZ[k]; AU[k] = v; vs += v;
       }
-      e = CUBE_E[(Math.random() * 12) | 0]; f = Math.random();
-      return [e[0] + (e[3] - e[0]) * f + j(), e[1] + (e[4] - e[1]) * f + j(), e[2] + (e[5] - e[2]) * f + j()];
     }
-    if (kind === 1) {
-      th = rnd(0, 6.283);
-      if (filled) { var zz = rnd(-1, 1), rr = Math.sqrt(1 - zz * zz); return [rr * Math.cos(th), rr * Math.sin(th), zz]; }
-      var ring = (Math.random() * 4) | 0;                   // wireframe globe: equator, a latitude, two meridians
-      if (ring === 0) return [Math.cos(th), j(), Math.sin(th)];
-      if (ring === 3) return [Math.cos(th) * 0.7, 0.71, Math.sin(th) * 0.7];
-      var m = ring === 1 ? 0 : 1.571;
-      return [Math.cos(th) * Math.cos(m), Math.sin(th), Math.cos(th) * Math.sin(m)];
-    }
-    if (filled) {
-      var F = TET_F[(Math.random() * 4) | 0], u2 = Math.random(), v2 = Math.random();
-      if (u2 + v2 > 1) { u2 = 1 - u2; v2 = 1 - v2; }
-      a = TET_V[F[0]]; b = TET_V[F[1]]; c = TET_V[F[2]];
-      return [a[0] + (b[0] - a[0]) * u2 + (c[0] - a[0]) * v2, a[1] + (b[1] - a[1]) * u2 + (c[1] - a[1]) * v2, a[2] + (b[2] - a[2]) * u2 + (c[2] - a[2]) * v2];
-    }
-    var pr = TET_E[(Math.random() * 6) | 0]; a = TET_V[pr[0]]; b = TET_V[pr[1]]; f = Math.random();
-    return [a[0] + (b[0] - a[0]) * f + j(), a[1] + (b[1] - a[1]) * f + j(), a[2] + (b[2] - a[2]) * f + j()];
+    for (; k < N; k++) { AX[k] = AX[k - 1]; AY[k] = AY[k - 1]; AZ[k] = AZ[k - 1]; AU[k] = AU[k - 1]; }
+    A.ai = ai; A.vref = vs / N * 1.7; A.next = performance.now() + ATT_MORPH;
   }
   function initChaos(now) {
-    var S = coarse || box.w < 520 ? 9 : 14, m = Math.min(box.w, box.h), shapes = [], i, k, wsum = 0;
-    for (i = 0; i < S; i++) {
-      var r = m * rnd(0.06, 0.13), dir = rnd(0, 6.283), spd = rnd(0.25, 0.6) * m / 1000, kind = i % 3;
-      shapes.push({
-        kind: kind, filled: Math.random() < 0.45, r: r, sc: r * SHAPE_SCALE[kind],
-        x: box.x + rnd(r, box.w - r), y: box.y + rnd(r, box.h - r), vx: Math.cos(dir) * spd, vy: Math.sin(dir) * spd,
-        ax: rnd(0, 6.283), ay: rnd(0, 6.283), az: rnd(0, 6.283),
-        wx: rnd(-0.0018, 0.0018), wy: rnd(-0.0018, 0.0018), wz: rnd(-0.0012, 0.0012),
-        zp: rnd(0, 6.283), zw: rnd(0.0004, 0.0009), z: 0, R: [1, 0, 0, 0, 1, 0, 0, 0, 1], g: 1, dead: 0, born: 0,
-        col: CHAOS_COLORS[i % CHAOS_COLORS.length]
-      });
-      shapes[i].w = r * (shapes[i].filled ? 1.7 : 1); wsum += shapes[i].w;
-    }
-    k = 0;
-    for (i = 0; i < S; i++) {
-      var cnt = i === S - 1 ? N - k : Math.round(N * shapes[i].w / wsum);
-      for (var q = 0; q < cnt && k < N; q++, k++) {
-        var p = shape3(shapes[i].kind, shapes[i].filled);
-        AX[k] = p[0]; AY[k] = p[1]; AZ[k] = p[2]; AG[k] = i;
-        setRGB(k, shapes[i].col[0], shapes[i].col[1], shapes[i].col[2]);
-      }
-    }
-    for (; k < N; k++) { AX[k] = AY[k] = AZ[k] = 0; AG[k] = 0; }
-    anim = { kind: 'chaos', shapes: shapes, last: now, kick: now + 900, base: coarse ? 2 : 2.2, vmax: m * 0.0009,
-             m: m, cx: box.x + box.w / 2, cy: box.y + box.h / 2, F: Math.max(box.w, box.h) * 1.4 };
+    var S = Math.min(box.w, box.h) * 0.46;
+    anim = { kind: 'chaos', t0: now, last: now, S: S, cx: box.x + box.w / 2, cy: box.y + box.h / 2, F: S * 4.2, tall: false,
+             zr: S * 2, base: coarse ? 1.7 : 1.5, yaw: rnd(0, 6.283), ly: 0, lp: 0, ai: 0, vref: 1, next: 0 };
+    for (var k = 0; k < N; k++) setRGB(k, 0.25, 0.84, 1);
+    seedAttractor(anim, (Math.random() * ATTRACTORS.length) | 0);
     var CA = anim;
-    CA.click = function (x, y, now) {      // a hit shatters the shape; a miss blasts everything away
-      var hit = chaosHit(CA, x, y);
-      if (hit) { shatter(CA, hit, now || performance.now()); return; }
-      GAME.combo = 0;
-      CA.shapes.forEach(function (sh) {
-        var dx = sh.x - x, dy = sh.y - y, d = Math.hypot(dx, dy) || 1, f = CA.vmax * (0.6 + 3.4 * Math.exp(-d / 420));
-        sh.vx += dx / d * f; sh.vy += dy / d * f; sh.cap = CA.vmax * 4;
-        sh.wx += rnd(-0.006, 0.006); sh.wy += rnd(-0.006, 0.006);
-      });
+    CA.morph = function (x, y, now) {        // on to the next attractor; the dots fly across to it
+      seedAttractor(CA, (CA.ai + 1) % ATTRACTORS.length);
+      var at = ATTRACTORS[CA.ai];
+      hint(at.name + '  //  ' + at.params);
+      rings.push({ x: x === undefined ? CA.cx : x, y: y === undefined ? CA.cy : y, r0: 12, t0: now, col: ATT_COLS[1] });
+      glitchNow(1.2);
     };
+    CA.click = function (x, y, now) { CA.morph(x, y, now || performance.now()); };
   }
-  /* ---- the Chaos game: click a shape to shatter it ----
-     A hit splits the shape's dots into shards that fly off as pieces, flash
-     white-hot and burn out; a shockwave, score pop, shake and glitch go off with
-     it. About a second later the shape comes back as something new elsewhere,
-     and the debris streams across to rebuild it. Hits within 1.4 s chain a combo. */
-  var GAME = { score: 0, combo: 0, last: 0, best: 0 }, rings = [], pops = [];
-  try { GAME.best = +localStorage.getItem('flick-chaos-best') || 0; } catch (e) {}
-  function chaosScreen(A, sh) {               // where a shape sits on screen, and how big
-    var p = A.F / (A.F + sh.z);
-    return [A.cx + (sh.x - A.cx) * p, A.cy + (sh.y - A.cy) * p, sh.r * p * sh.g];
-  }
-  function chaosHit(A, x, y) {
-    var best = null, bestZ = 1e9;
-    A.shapes.forEach(function (sh) {
-      if (sh.dead) return;
-      var c = chaosScreen(A, sh), reach = c[2] * 1.12 + (coarse ? 16 : 6);
-      if (Math.hypot(x - c[0], y - c[1]) < reach && sh.z < bestZ) { best = sh; bestZ = sh.z; }   // nearest wins
-    });
-    return best;
-  }
-  function shatter(A, sh, now) {
-    var i = A.shapes.indexOf(sh), c = chaosScreen(A, sh), cx = c[0], cy = c[1], rad = c[2];
-    var nSh = 6 + ((Math.random() * 5) | 0), shards = [], q, k;
-    for (q = 0; q < nSh * 2; q++) {           // an inner ring of slow shards and an outer ring of fast ones
-      var a = (q % nSh + 0.5) / nSh * 6.283 + rnd(-0.3, 0.3), spd = q < nSh ? rnd(4, 8) : rnd(8, 15);
-      shards.push([Math.cos(a) * spd + sh.vx * 16, Math.sin(a) * spd + sh.vy * 16 - rnd(1, 3.5)]);
-    }
-    var back = now + 1100;
-    for (k = 0; k < N; k++) {
-      if (AG[k] !== i) continue;
-      var dx = px[k] - cx, dy = py[k] - cy, sec = (((Math.atan2(dy, dx) / 6.283) + 1) % 1 * nSh) | 0;
-      var v = shards[sec + (Math.hypot(dx, dy) > rad * 0.55 ? nSh : 0)];
-      vx[k] = v[0] + rnd(-0.8, 0.8); vy[k] = v[1] + rnd(-0.8, 0.8);
-      wake[k] = back + rnd(0, 280); fall[k] = 0.24;
-      cr[k] = cg[k] = cb[k] = 1.7; sz[k] *= 1.9;   // white-hot flash, cooling back to the shape's colour
-    }
-    sh.dead = now; sh.back = back;
-    GAME.combo = now - GAME.last < 1400 ? GAME.combo + 1 : 1; GAME.last = now;
-    var pts = (sh.r < A.m * 0.09 ? 150 : 100) * GAME.combo;
-    GAME.score += pts;
-    if (GAME.score > GAME.best) { GAME.best = GAME.score; try { localStorage.setItem('flick-chaos-best', GAME.best); } catch (e) {} }
-    rings.push({ x: cx, y: cy, r0: rad, t0: now, col: sh.col });
-    pops.push({ x: cx, y: cy - rad * 0.4, t0: now, col: sh.col, txt: '+' + pts + (GAME.combo > 1 ? '  x' + GAME.combo : '') });
-    glitchNow(1.1 + Math.min(1.4, GAME.combo * 0.25));
-    SHAKE.until = now + 240; SHAKE.amp = Math.min(16, 5 + GAME.combo * 2);
-    hint('SCORE ' + GAME.score + (GAME.combo > 1 ? '  //  x' + GAME.combo + ' COMBO' : '') + '  //  BEST ' + GAME.best);
-  }
-  function respawn(A, sh, now) {              // back as a new shape, somewhere else
-    var i = A.shapes.indexOf(sh), k, tries = 0;
-    sh.kind = (Math.random() * 3) | 0; sh.col = CHAOS_COLORS[(Math.random() * CHAOS_COLORS.length) | 0];
-    sh.sc = sh.r * SHAPE_SCALE[sh.kind];
-    do {
-      sh.x = box.x + rnd(sh.r, box.w - sh.r); sh.y = box.y + rnd(sh.r, box.h - sh.r); tries++;
-    } while (tries < 12 && ptr.on && Math.hypot(sh.x - ptr.x, sh.y - ptr.y) < sh.r * 3);
-    var dir = rnd(0, 6.283); sh.vx = Math.cos(dir) * A.vmax * 0.6; sh.vy = Math.sin(dir) * A.vmax * 0.6; sh.cap = A.vmax;
-    for (k = 0; k < N; k++) {
-      if (AG[k] !== i) continue;
-      var p3 = shape3(sh.kind, sh.filled);
-      AX[k] = p3[0]; AY[k] = p3[1]; AZ[k] = p3[2];
-      setRGB(k, sh.col[0], sh.col[1], sh.col[2]);
-    }
-    sh.dead = 0; sh.born = now; sh.g = 0;
-  }
+  var rings = [], pops = [];                 // click shockwaves (drawn on the overlay)
   function updateChaos(now) {
-    var A = anim, sh = A.shapes, dt = Math.min(40, now - A.last), i, j, s;
+    var A = anim, dt = Math.min(40, now - A.last), at = ATTRACTORS[A.ai], k;
     A.last = now;
-    if (now > A.kick) {                    // every so often something gets shoved and set spinning
-      s = sh[(Math.random() * sh.length) | 0];
-      s.vx += rnd(-1, 1) * A.vmax * 0.8; s.vy += rnd(-1, 1) * A.vmax * 0.8;
-      s.wx += rnd(-0.002, 0.002); s.wy += rnd(-0.002, 0.002);
-      A.kick = now + rnd(450, 1200);
-    }
-    if (ptr.on && !overNav && !reduce) {   // the cursor knocks shapes away, at about the speed you swing it
-      for (i = 0; i < sh.length; i++) {
-        s = sh[i];
-        if (s.dead) continue;
-        var bx = s.x - ptr.x, by = s.y - ptr.y, bd = Math.hypot(bx, by) || 1, reach = s.r + 24;
-        if (bd < reach) {
-          var ux = bx / bd, uy = by / bd;
-          s.x = ptr.x + ux * reach; s.y = ptr.y + uy * reach;
-          s.vx = ux * A.vmax * 0.7 + ptr.vx * 0.9; s.vy = uy * A.vmax * 0.7 + ptr.vy * 0.9; s.cap = A.vmax * 4;
-          s.wx += rnd(-0.004, 0.004); s.wy += rnd(-0.004, 0.004);
-        }
-      }
-    }
     ptr.vx *= 0.85; ptr.vy *= 0.85;
-    for (i = 0; i < sh.length; i++) {
-      s = sh[i];
-      if (s.dead && now > s.back) respawn(A, s, now);
-      s.g = s.born ? ease(clamp01((now - s.born) / 420)) : 1;   // a respawned shape grows in
-      var sp = Math.hypot(s.vx, s.vy);
-      s.cap = Math.max(A.vmax, (s.cap || A.vmax) * 0.985);    // a hit lets it fly fast, then it calms down
-      if (sp > s.cap) { s.vx *= s.cap / sp; s.vy *= s.cap / sp; }
-      s.wx = Math.max(-0.004, Math.min(0.004, s.wx)); s.wy = Math.max(-0.004, Math.min(0.004, s.wy));
-      s.x += s.vx * dt; s.y += s.vy * dt; s.ax += s.wx * dt; s.ay += s.wy * dt; s.az += s.wz * dt;
-      s.z = Math.sin(now * s.zw + s.zp) * A.m * 0.3;            // drift nearer and farther
-      if (s.x < box.x + s.r) { s.x = box.x + s.r; s.vx = Math.abs(s.vx); s.wy = -s.wy; }
-      if (s.x > box.x + box.w - s.r) { s.x = box.x + box.w - s.r; s.vx = -Math.abs(s.vx); s.wy = -s.wy; }
-      if (s.y < box.y + s.r) { s.y = box.y + s.r; s.vy = Math.abs(s.vy); s.wx = -s.wx; }
-      if (s.y > box.y + box.h - s.r) { s.y = box.y + box.h - s.r; s.vy = -Math.abs(s.vy); s.wx = -s.wx; }
-    }
-    for (i = 0; i < sh.length; i++) for (j = i + 1; j < sh.length; j++) {   // bump into each other
-      var a = sh[i], b = sh[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1, min = (a.r + b.r) * 0.92;
-      if (a.dead || b.dead) continue;
-      if (d < min) {
-        var nx = dx / d, ny = dy / d, rel = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
-        if (rel > 0) { a.vx -= rel * nx; a.vy -= rel * ny; b.vx += rel * nx; b.vy += rel * ny; a.wz += rnd(-0.002, 0.002); b.wz += rnd(-0.002, 0.002); }
-        var push = (min - d) / 2; a.x -= nx * push; a.y -= ny * push; b.x += nx * push; b.y += ny * push;
+    if (!reduce && now > A.next) A.morph(undefined, undefined, now);
+    // the view turns slowly and leans toward the cursor
+    var on = ptr.on && !overNav && !reduce;
+    A.yaw += reduce ? 0 : dt * 0.00011;
+    A.ly += ((on ? (ptr.x - A.cx) / box.w * 1.1 : 0) - A.ly) * 0.04;
+    A.lp += ((on ? (ptr.y - A.cy) / box.h * 0.7 : 0) - A.lp) * 0.04;
+    view3(A, A.yaw + A.ly, 0.32 + A.lp);
+    var h = reduce ? 0 : at.dt * dt / 16.7, inv = 1 / at.k, S = A.S, vr = 1 / A.vref;
+    // moving through the flow knocks the dots near the cursor off their paths, harder the faster you move
+    var R = coarse ? 70 : 90, R2 = R * R, kick = (0.05 + Math.min(0.25, Math.hypot(ptr.vx, ptr.vy) * 0.06)) * inv;
+    for (k = 0; k < N; k++) {
+      if (on) {
+        var dx = tx[k] - ptr.x, dy = ty[k] - ptr.y, d2 = dx * dx + dy * dy;
+        if (d2 < R2) { var f = kick * (1 - d2 / R2); AX[k] += rnd(-f, f); AY[k] += rnd(-f, f); AZ[k] += rnd(-f, f); }
       }
-    }
-    for (i = 0; i < sh.length; i++) {      // rotation matrix Rz * Ry * Rx
-      s = sh[i];
-      var cx_ = Math.cos(s.ax), sx_ = Math.sin(s.ax), cy_ = Math.cos(s.ay), sy_ = Math.sin(s.ay), cz = Math.cos(s.az), sz = Math.sin(s.az), R = s.R;
-      R[0] = cy_ * cz; R[1] = sx_ * sy_ * cz - cx_ * sz; R[2] = cx_ * sy_ * cz + sx_ * sz;
-      R[3] = cy_ * sz; R[4] = sx_ * sy_ * sz + cx_ * cz; R[5] = cx_ * sy_ * sz - sx_ * cz;
-      R[6] = -sy_;     R[7] = sx_ * cy_;                 R[8] = cx_ * cy_;
-    }
-    for (var k = 0; k < N; k++) {
-      s = sh[AG[k]];
-      if (s.dead) { ts[k] = now - s.dead < 360 ? A.base * 1.5 : 0; continue; }   // debris burns out
-      var R2 = s.R, lx = AX[k], ly = AY[k], lz = AZ[k], gs = s.sc * s.g;
-      var X = (R2[0] * lx + R2[1] * ly + R2[2] * lz) * gs, Y = (R2[3] * lx + R2[4] * ly + R2[5] * lz) * gs, Z = (R2[6] * lx + R2[7] * ly + R2[8] * lz) * gs;
-      var wz = s.z + Z, p = A.F / (A.F + wz);
-      tx[k] = A.cx + (s.x - A.cx + X) * p; ty[k] = A.cy + (s.y - A.cy + Y) * p;
-      var near = clamp01(0.5 - Z / (s.sc * 2.4)), lum = 0.3 + 0.7 * near;   // the side facing you is brighter
-      tr[k] = BR[k] * lum; tg[k] = BG[k] * lum; tb[k] = BB[k] * lum;
-      ts[k] = A.base * p * (0.75 + 0.4 * near);
+      var v = h ? attStep(at, k, h) : AU[k];
+      if (!(Math.abs(AX[k]) < 1e4 && Math.abs(AY[k]) < 1e4 && Math.abs(AZ[k]) < 1e4)) {   // flung too far: rejoin another dot's path
+        var o2 = (Math.random() * N) | 0; AX[k] = AX[o2]; AY[k] = AY[o2]; AZ[k] = AZ[o2]; v = AU[o2];
+      }
+      AU[k] += (v - AU[k]) * 0.2;
+      // colour by speed: cyan when slow, magenta, then amber when fast
+      var sn = clamp01(AU[k] * vr), c0, c1, u;
+      if (sn < 0.5) { c0 = ATT_COLS[0]; c1 = ATT_COLS[1]; u = sn * 2; } else { c0 = ATT_COLS[1]; c1 = ATT_COLS[2]; u = sn * 2 - 1; }
+      BR[k] = c0[0] + (c1[0] - c0[0]) * u; BG[k] = c0[1] + (c1[1] - c0[1]) * u; BB[k] = c0[2] + (c1[2] - c0[2]) * u;
+      put3(A, k, (AX[k] - at.c[0]) * at.k * S, -(AZ[k] - at.c[2]) * at.k * S, (AY[k] - at.c[1]) * at.k * S,
+           A.base * (0.75 + 0.5 * sn), undefined, A.zr);
     }
   }
 
@@ -908,11 +803,15 @@ footer a:hover{text-decoration:underline}
     }
   }
 
-  /* ---- Systems: a 3D carousel of the work ----
-     A ring of chips, one per project, wired to a central spine. It turns step by
-     step, stopping with one project at the front, where its chip lights up and a
-     single board under the ring shows its name, meter and status. Signal pulses
-     hop out along the traces and flash each chip's status LED. */
+  /* ---- Systems: the work as a four-cylinder engine block ----
+     Four rings of chips stacked on one spine like the cylinders of a block, each
+     ring tipped onto its own plane. The planes slowly wheel round, neighbouring
+     rings turn opposite ways, the rings ride up and down on a crank like pistons,
+     and they fire in an engine's 1-3-4-2 order: the firing ring kicks a step and
+     flashes, the block shudders, its front chip swells, and the board under the
+     block shows that project. Roll over the block and it zooms in under the cursor. Data streaks race up the spine and out
+     along the spokes, packets zip up and down the spine, and current runs round
+     every ring. */
   var PROJECTS = [
     { name: 'Flick Systems', status: 'progress', icon: 'hub' },
     { name: 'Chaos portfolio', status: 'progress', icon: 'chaos' },
@@ -934,7 +833,7 @@ footer a:hover{text-decoration:underline}
     almost:   { label: 'Almost',      rgb: [1, 0.77, 0.24] },
     progress: { label: 'In progress', rgb: [0.3, 0.79, 1] }
   };
-  var SCHEM_STEP = 1700, SCHEM_TURN = 520, SCHEM_LOOP = 2200, SCHEM_STEPS = 10;
+  var CYL = 4, FIRE_ORDER = [0, 2, 3, 1], FIRE_EVERY = 1900;   // rings, firing order, ms between firings
   var schemEl = document.getElementById('schem'), board = null, boardShown = -1;
   function proj3(A, x, y, z) {               // same maths as put3, returning screen x, y, scale, depth
     var x2 = x * A.cY - z * A.sY, z2 = x * A.sY + z * A.cY, y3 = y * A.cP - z2 * A.sP, z3 = y * A.sP + z2 * A.cP, p = A.F / (A.F + z3);
@@ -945,10 +844,14 @@ footer a:hover{text-decoration:underline}
     boardShown = i;
     var p = PROJECTS[i];
     board.className = 'sx-board ' + p.status;
-    var nm = board.querySelector('.sx-name'); nm.dataset.txt = p.name; nm.textContent = p.name; scramble(nm, 480);
+    var nm = board.querySelector('.sx-name'), t = performance.now(); nm.dataset.txt = p.name; nm.textContent = p.name; scramble(nm, 300);
     board.querySelector('.sx-st').textContent = STATUS[p.status].label;
-    var face = board.querySelector('.sx-face');
-    face.classList.remove('flip'); void face.offsetWidth; face.classList.add('flip');   // restart the flip
+    // the engine fires faster than the flip takes, so flip at most every couple of seconds; in between the name just decodes
+    if (t - (board._flip || 0) > 1200) {
+      board._flip = t;
+      var face = board.querySelector('.sx-face');
+      face.classList.remove('flip'); void face.offsetWidth; face.classList.add('flip');
+    }
   }
   /* Chip icons: one small line drawing per project, in a unit box (-1..1, y down),
      scaled onto the chip. The status LED sits on the chip's top-right corner. tint colours an icon; the rest are white. */
@@ -1048,97 +951,235 @@ footer a:hover{text-decoration:underline}
     var f = ICONS[name];
     return (f ? f() : rectSegs(-0.4, -0.4, 0.4, 0.4)).map(function (g) { return [g[0] * S, g[1] * S, g[2] * S, g[3] * S]; });
   }
+  // Rotation by angle a about the level axis pointing at angle phi (Rodrigues), as a flat 3x3
+  function tiltMatrix(phi, a) {
+    var ux = Math.cos(phi), uz = Math.sin(phi), c = Math.cos(a), s = Math.sin(a), C = 1 - c;
+    return [c + ux * ux * C, -uz * s, ux * uz * C,
+            uz * s,          c,       -ux * s,
+            uz * ux * C,     ux * s,  c + uz * uz * C];
+  }
+  var ZOOM = 2.4;
+  var CYL_RGB = [[0.24, 1, 0.54], [0.3, 0.79, 1], [1, 0.22, 0.52], [1, 0.8, 0.22]];   // green, cyan, magenta, amber
+  function cylRGB(k, j, f, w) { var c = CYL_RGB[j]; setRGB(k, (c[0] + (1 - c[0]) * w) * f, (c[1] + (1 - c[1]) * w) * f, (c[2] + (1 - c[2]) * w) * f); }   // w mixes toward white                          // how far it zooms in under the cursor
   function initSchematic(now) {
-    var n = PROJECTS.length, R = Math.min(box.w * 0.4, box.h * 0.95), s = Math.max(14, Math.min(34, R * 0.14));
-    var ringY = -box.h * 0.08, chips = [], i, k = 0, e;
-    for (i = 0; i < n; i++) chips.push({ th: i / n * 6.283, x: 0, z: 0, tx: 0, tz: 0, front: 0 });
-    var nSpine = (N * 0.04) | 0, nBus = (N * 0.09) | 0, nSpoke = (N * 0.14) | 0, nChip = (N * 0.49) | 0, nLed = (N * 0.07) | 0;
-    for (; k < nSpine; k++) { AR[k] = 0; AX[k] = rnd(-1, 1); AY[k] = rnd(ringY - box.h * 0.22, ringY + box.h * 0.04); AZ[k] = rnd(-1, 1); setRGB(k, 0.3, 0.5, 1); }
-    for (e = k + nBus; k < e; k++) { AR[k] = 1; AU[k] = rnd(0, 6.283); AG[k] = Math.random() < 0.6 ? 0 : 1; setRGB(k, 0.22, 0.42, 0.95); }
-    for (e = k + nSpoke; k < e; k++) { AR[k] = 2; AG[k] = k % n; AU[k] = Math.random(); AX[k] = rnd(-0.8, 0.8); AY[k] = rnd(-0.8, 0.8); setRGB(k, 0.22, 0.42, 0.95); }
-    // one chip drawing in local (across, down) coordinates, shared by every chip
-    var h = s / 2, segs = rectSegs(-h, -h, h, h);
-    for (var q = -1; q <= 1; q++) segs.push([q * h * 0.5, -h, q * h * 0.5, -h * 1.45], [q * h * 0.5, h, q * h * 0.5, h * 1.45]);
-    // frame and pins are the same on every chip; the drawing inside is the project's own,
-    // and gets most of the chip's dots so it reads
-    var per = Math.floor(nChip / n), nFrame = (per * 0.25) | 0;
+    var n = PROJECTS.length, i, j, k = 0, e, q, tall = box.h > box.w;
+    var tilt = 0.2, pitch = tall ? 0.42 : 0.26;
+    // size it as big as the area allows: try a radius, measure the block's height on screen, scale to fit
+    function geom(R) {
+      var s = Math.max(13, Math.min(30, R * 0.16)), H = R * 0.85, gap = H / (CYL - 1);
+      return { R: R, s: s, H: H, gap: gap, top: -H / 2, stroke: gap * 0.2, lean: R * Math.sin(tilt * 1.35) };
+    }
+    function span(G) {
+      var T = { cx: 0, cy: 0, F: G.R * 3.2 }; view3(T, 0, pitch);
+      var hi = proj3(T, 0, G.top - G.stroke - G.lean - G.s, G.R), lo = proj3(T, 0, G.top + G.H + G.stroke + G.lean + G.s * 1.3, -G.R);
+      return [hi[1], lo[1]];
+    }
+    // (the measure is a worst case: the top ring's back edge tipped up while its piston is at the top,
+    // which never all happens at once, so let it run a quarter over)
+    var G = geom(Math.min(box.w * (tall ? 0.44 : 0.38), box.h * 0.75)), sp = span(G), room = (box.h - 74) * 1.25;
+    if (sp[1] - sp[0] > room) { G = geom(G.R * room / (sp[1] - sp[0])); sp = span(G); }
+    var R = G.R, s = G.s, cyl = [], chips = [];
+    for (j = 0; j < CYL; j++) cyl.push({ y: G.top + j * G.gap, py: 0, ids: [], dir: j % 2 ? -1 : 1, turn: j ? 0.5 : 0, target: j ? 0.5 : 0,
+                                         phi0: j * Math.PI / 2 + 0.6, crank: j === 1 || j === 2 ? Math.PI : 0, fired: -1e9, glow: 0, yaw: 0, M: null });
+    for (i = 0; i < n; i++) { cyl[i % CYL].ids.push(i); chips.push({ cyl: i % CYL, slot: (i / CYL) | 0, x: 0, y: 0, z: 0, tx: 1, ty: 0, tz: 0, ux: 0, uy: 1, uz: 0, nx: 0, ny: 0, nz: 1, cw: 1, sw: 0, cn: 1, sn: 0, front: 0 }); }
+    var spineTop = G.top - G.gap * 0.5 - G.stroke, spineBot = G.top + G.H + G.gap * 0.5 + G.stroke;
+    var nSpine = (N * 0.03) | 0, nRing = (N * 0.06) | 0, nSpoke = (N * 0.06) | 0, nChip = (N * 0.62) | 0, nLed = (N * 0.06) | 0;
+    var nStreak = (N * 0.07) | 0, nFlow = (N * 0.05) | 0, L = 8;
+    for (; k < nSpine; k++) { AR[k] = 0; AX[k] = rnd(-1.2, 1.2); AY[k] = rnd(spineTop, spineBot); AZ[k] = rnd(-1.2, 1.2); setRGB(k, 0.3, 0.5, 1); }
+    for (e = k + nRing; k < e; k++) { AR[k] = 1; AG[k] = k % CYL; AU[k] = rnd(0, 6.283); AX[k] = Math.random() < 0.65 ? 1 : 0.5; cylRGB(k, AG[k], 0.7, 0); }
+    for (e = k + nSpoke; k < e; k++) { AR[k] = 2; AG[k] = k % n; AU[k] = Math.random(); AX[k] = rnd(-0.8, 0.8); AY[k] = rnd(-0.8, 0.8); cylRGB(k, AG[k] % CYL, 0.55, 0); }
+    // Each chip is a solid: a cube on rings 1 and 3, a drum (a short cylinder facing out) on rings
+    // 2 and 4, drawn by its edges in local (across, down, depth) coordinates. The project's icon is
+    // extruded through the middle of it, front face, back face and a little of the sides between.
+    var h = s / 2, D = h * 0.8, ID = D * 0.4;
+    var cube = [], drum = [], cc = [[-h, -h], [h, -h], [h, h], [-h, h]];
+    for (q = 0; q < 4; q++) {
+      var p1 = cc[q], p2 = cc[(q + 1) % 4];
+      cube.push([p1[0], p1[1], -D, p2[0], p2[1], -D], [p1[0], p1[1], D, p2[0], p2[1], D], [p1[0], p1[1], -D, p1[0], p1[1], D]);
+    }
+    for (q = 0; q < 20; q++) {
+      var a1 = q / 20 * 6.283, a2 = (q + 1) / 20 * 6.283, rr1 = h * 1.08;
+      var x1 = Math.cos(a1) * rr1, y1 = Math.sin(a1) * rr1, x2 = Math.cos(a2) * rr1, y2 = Math.sin(a2) * rr1;
+      drum.push([x1, y1, -D, x2, y2, -D], [x1, y1, D, x2, y2, D]);
+      if (q % 4 === 0) drum.push([x1, y1, -D, x1, y1, D]);
+    }
+    function onSegments3(sg, k0, cnt, jit) {
+      var tot = 0, cum = [], ii, kk;
+      for (ii = 0; ii < sg.length; ii++) { tot += Math.hypot(sg[ii][3] - sg[ii][0], sg[ii][4] - sg[ii][1], sg[ii][5] - sg[ii][2]); cum.push(tot); }
+      for (kk = k0; kk < k0 + cnt; kk++) {
+        var u = Math.random() * tot; ii = 0;
+        while (cum[ii] < u) ii++;
+        var g3 = sg[ii], pv = ii ? cum[ii - 1] : 0, f = (u - pv) / ((cum[ii] - pv) || 1);
+        AX[kk] = g3[0] + (g3[3] - g3[0]) * f + rnd(-jit, jit);
+        AY[kk] = g3[1] + (g3[4] - g3[1]) * f + rnd(-jit, jit);
+        AZ[kk] = g3[2] + (g3[5] - g3[2]) * f + rnd(-jit, jit);
+      }
+    }
+    var per = Math.floor(nChip / n), nFrame = (per * 0.28) | 0;
     for (i = 0; i < n; i++) {
       var ic = ICON_TINT[PROJECTS[i].icon] || [0.95, 0.96, 0.97];
-      onSegments(segs, k, nFrame, 0.5);
-      onSegments(iconSegs(PROJECTS[i].icon, h * 0.78), k + nFrame, per - nFrame, 0.4);
+      onSegments3((i % CYL) % 2 ? drum : cube, k, nFrame, 0.2);
+      onSegments(iconSegs(PROJECTS[i].icon, h * 0.86), k + nFrame, per - nFrame, 0.12);   // tight to the line, so it reads crisp
+      for (q = k; q < k + per; q++) AU[q] = q < k + nFrame ? 0 : 1;   // 1 marks an icon dot
+      for (q = k + nFrame; q < k + per; q++) {           // raise the icon off the front face: mostly the face itself,
+        var rz = Math.random();                          // so it stays sharp, with a little of its sides behind
+        AZ[q] = rz < 0.78 ? -ID : rnd(-ID, -ID * 0.15);
+      }
       for (e = k + per; k < e; k++) {
         AR[k] = 3; AG[k] = i;
-        if (e - k > per - nFrame) setRGB(k, 0.7, 0.74, 0.8);   // frame a little dimmer than the icon
+        if (e - k > per - nFrame) cylRGB(k, i % CYL, 0.85, 0.35);   // body in its cylinder's colour, the icon stays white
         else setRGB(k, ic[0], ic[1], ic[2]);
       }
     }
-    for (e = k + nLed; k < e; k++) {
+    for (e = k + nLed; k < e; k++) {                      // status LED on the front face's top-right corner
       var pi = k % n, a = rnd(0, 6.283), rr = Math.sqrt(Math.random()) * s * 0.1, c0 = STATUS[PROJECTS[pi].status].rgb;
-      AR[k] = 4; AG[k] = pi; AX[k] = h * 0.92 + Math.cos(a) * rr; AY[k] = -h * 0.92 + Math.sin(a) * rr;   // on the chip's corner, clear of the icon setRGB(k, c0[0], c0[1], c0[2]);
+      AR[k] = 4; AG[k] = pi; AX[k] = h * 0.92 + Math.cos(a) * rr; AY[k] = -h * 0.92 + Math.sin(a) * rr; AZ[k] = -D;
+      setRGB(k, c0[0], c0[1], c0[2]);
     }
-    for (; k < N; k++) { AR[k] = 5; AG[k] = k % n; AX[k] = rnd(-1.5, 1.5); AY[k] = rnd(-1.5, 1.5); AZ[k] = rnd(-1.5, 1.5); setRGB(k, 0.78, 0.93, 1); }
-    anim = { kind: 'schematic', t0: now, chips: chips, R: R, s: s, ringY: ringY, n: n, cx: box.x + box.w / 2, cy: box.y + box.h * 0.42,
-             F: R * 3.2, tall: false, zr: R * 1.3, base: Math.max(1.4, Math.min(2.2, s / 14)),
-             turn: 0, target: 0, lastStep: now, lastMove: -1e9 };
+    // streaks: packets of L dots in a line, each dot a little behind the one in front (AX = how far back, 0..1)
+    for (e = k + nStreak; k < e; k += L) {
+      var ch = (Math.random() * n) | 0, ph0 = Math.random();
+      for (q = 0; q < L && k + q < e; q++) { AR[k + q] = 5; AG[k + q] = ch; AU[k + q] = ph0 - q * 0.011; AX[k + q] = q / L; cylRGB(k + q, ch % CYL, 1, 0.45); }
+    }
+    k = e;
+    for (e = k + nFlow; k < e; k += L) {                 // current running round the rings
+      var rg = (Math.random() * CYL) | 0, a0 = rnd(0, 6.283), rf = Math.random() < 0.65 ? 1 : 0.5;
+      for (q = 0; q < L && k + q < e; q++) { AR[k + q] = 6; AG[k + q] = rg; AU[k + q] = a0 + q * 0.045; AX[k + q] = rf; AZ[k + q] = q / L; cylRGB(k + q, rg, 1, 0.2); }
+    }
+    k = e;
+    for (; k < N; k += L) {                               // the rest zip up and down the spine
+      var dn = Math.random() < 0.5 ? 1 : 0, p0 = Math.random();
+      for (q = 0; q < L && k + q < N; q++) { AR[k + q] = 7; AG[k + q] = dn; AU[k + q] = p0 - q * 0.012; AX[k + q] = q / L; setRGB(k + q, 0.85, 0.95, 1); }
+    }
+    anim = { kind: 'schematic', t0: now, chips: chips, cyl: cyl, R: R, s: s, n: n, cx: box.x + box.w / 2, cy: 0,
+             F: R * 3.2, tall: false, zr: R * 1.3, base: Math.max(1.3, Math.min(2.2, s / 13)),
+             spineTop: spineTop, spineBot: spineBot, stroke: G.stroke, tilt: tilt, pitch: pitch,
+             fi: 0, count: 0, crank: 0, active: FIRE_ORDER[0], lastFire: now, zoom: 1, fx: 0, fy: 0, hover: -1 };
+    // centre the block, leaving room under it for the board
+    anim.cy = box.y + (box.h - 74) / 2 - (sp[0] + sp[1]) / 2;
+    var lowEdge = anim.cy + sp[1], over = lowEdge - (box.y + box.h - 74) - (sp[1] - sp[0]) * 0.1;
+    if (over > 0) anim.cy -= over;
+    anim.fx = anim.cx; anim.fy = anim.cy;
+    // the hover area: the block itself, never the board under it or the channel names below
+    anim.bx0 = anim.cx - R * 1.05; anim.bx1 = anim.cx + R * 1.05;
+    anim.by0 = Math.max(box.y, anim.cy + sp[0]); anim.by1 = Math.min(box.y + box.h - 74, anim.cy + sp[1]);
     var SA = anim;
-    SA.click = function () { SA.target = Math.round(SA.target) + 1; SA.lastMove = performance.now() - 300; };
-    ptr.ddx = 0;
-    view3(anim, 0, box.h > box.w ? 0.62 : 0.38);   // tip it further toward you on tall screens so it fills the height
+    // Rings rest half a step off the front, so their chips stagger instead of lining up. Firing
+    // kicks the next ring in the order half a step onto a chip at the front, and lets the
+    // last one kick on half a step: every ring turns in two strokes.
+    SA.fire = function (t) {
+      var P = SA.cyl[SA.active]; P.target = Math.round(P.target) + 0.5;
+      SA.fi = (SA.fi + 1) % CYL; SA.active = FIRE_ORDER[SA.fi]; SA.count++;
+      var C = SA.cyl[SA.active]; C.target = Math.round(C.target + 0.5); C.fired = t; SA.lastFire = t;
+    };
+    SA.click = function () { SA.fire(performance.now()); };
+    view3(anim, 0, pitch);
     if (schemEl && !board) {
       schemEl.innerHTML = '<div class="sx-board"><div class="sx-face"><span class="sx-name"></span>' +
                           '<span class="sx-meter"><i></i></span><span class="sx-st"></span></div></div>';
       board = schemEl.firstChild;
     }
-    // leave room under the front chip (pins included, at its enlarged size) for the board
-    var fb = proj3(anim, 0, ringY + s, -R), over = fb[1] + 74 - (box.y + box.h);
-    if (over > 0) { anim.cy -= over; fb = proj3(anim, 0, ringY + s, -R); }
-    if (board) { board.style.left = anim.cx + 'px'; board.style.top = (fb[1] + 12) + 'px'; }
+    if (board) { board.style.left = anim.cx + 'px'; board.style.top = Math.min(anim.cy + sp[1] + 6, box.y + box.h - 66) + 'px'; }
     boardShown = -1;
   }
   function updateSchematic(now) {
-    var A = anim, t = now - A.t0, n = A.n, k, i, c;
-    // turn one step, hold, turn the next: the project at index `at` faces you
-    // move sideways to spin it; stop and it settles on the nearest project; leave it and it steps on its own
-    if (ptr.on && !overNav && ptr.ddx) { A.target += ptr.ddx / box.w * n * 0.9; A.lastMove = now; }
-    ptr.ddx = 0;
-    var idle = now - A.lastMove;
-    if (idle > 220) A.target = Math.round(A.target);
-    if (!reduce && idle > 2500 && now - A.lastStep > SCHEM_STEP) { A.target += 1; A.lastStep = now; }
-    A.turn += (A.target - A.turn) * (idle < 220 ? 0.25 : 0.09);
-    var turn = A.turn, at = ((Math.round(turn) % n) + n) % n;
-    var yaw = Math.PI / 2 - turn * 6.283 / n;   // puts chip `turn` straight toward you
-    for (i = 0; i < n; i++) {
-      c = A.chips[i];
-      var th = c.th + yaw;                   // chip i sits at angle i/n of the ring, turned by yaw
-      c.x = Math.cos(th) * A.R; c.z = -Math.sin(th) * A.R; c.tx = Math.sin(th); c.tz = Math.cos(th);
-      c.front = clamp01(-c.z / A.R);         // 1 at the very front
+    var A = anim, t = now - A.t0, n = A.n, k, i, j, c, C, M, m;
+    // the cylinders fire on their own in the firing order; a click fires the next one now
+    if (!reduce && now - A.lastFire > FIRE_EVERY) A.fire(now);
+    // The crank: every firing is half a turn, so each ring is at the top of its stroke as it fires
+    // (rings 1 and 4 move together, 2 and 3 opposite them, as in an inline four)
+    var crankTo = Math.PI * (A.count + (reduce ? 0 : clamp01((now - A.lastFire) / FIRE_EVERY)));
+    A.crank += (crankTo - A.crank) * 0.06;
+    // the whole block sways a little so you can see round it
+    view3(A, reduce ? 0 : Math.sin(t * 0.00027) * 0.22, A.pitch + (reduce ? 0 : Math.sin(t * 0.0002) * 0.04));
+    for (j = 0; j < CYL; j++) {
+      C = A.cyl[j];
+      C.turn += (C.target - C.turn) * 0.045;
+      C.glow = Math.exp(-(now - C.fired) / 600);        // a soft flash as it fires
+      C.py = C.y - A.stroke * Math.cos(A.crank + C.crank);
+      var phi = C.phi0 + (reduce ? 0 : t * 0.00012 * C.dir);   // each ring's plane slowly wheels round
+      C.M = tiltMatrix(phi, A.tilt * (1 + 0.12 * C.glow));
+      C.yaw = Math.PI / 2 - C.dir * C.turn * 6.283 / C.ids.length;
     }
-    showOnBoard(at);
-    var g = clamp01((t - 150) / 650);        // traces draw outward from the spine first
-    for (k = 0; k < N; k++) {
-      var r = AR[k], size, x, y, z;
-      if (r === 0) { put3(A, k, AX[k], AY[k], AZ[k], A.base * 0.9 * g, undefined, A.zr); continue; }
-      if (r === 1) {                         // ring traces at two radii
-        var ang = AU[k] + yaw, rad = A.R * (AG[k] ? 0.82 : 0.45) * g;
-        put3(A, k, Math.cos(ang) * rad, A.ringY, -Math.sin(ang) * rad, A.base * 0.8, undefined, A.zr); continue;
+    for (i = 0; i < n; i++) {
+      c = A.chips[i]; C = A.cyl[c.cyl]; M = C.M; m = C.ids.length;
+      var th = C.dir * c.slot / m * 6.283 + C.yaw, lx = Math.cos(th) * A.R, lz = -Math.sin(th) * A.R, sx = Math.sin(th), sz = Math.cos(th);
+      c.x = M[0] * lx + M[2] * lz; c.y = M[3] * lx + M[5] * lz; c.z = M[6] * lx + M[8] * lz;
+      c.tx = M[0] * sx + M[2] * sz; c.ty = M[3] * sx + M[5] * sz; c.tz = M[6] * sx + M[8] * sz;
+      c.ux = M[1]; c.uy = M[4]; c.uz = M[7];
+      c.nx = c.ty * c.uz - c.tz * c.uy; c.ny = c.tz * c.ux - c.tx * c.uz; c.nz = c.tx * c.uy - c.ty * c.ux;   // depth axis
+      // each solid slowly turns and nods on its own, so its depth shows even when it faces you
+      var w1 = reduce ? 0.3 : Math.sin(t * 0.0006 + i * 1.3) * 0.38, w2 = reduce ? 0.15 : Math.sin(t * 0.00045 + i * 2.1) * 0.18;
+      c.cw = Math.cos(w1); c.sw = Math.sin(w1); c.cn = Math.cos(w2); c.sn = Math.sin(w2);
+      c.front = clamp01(-c.z / A.R);
+    }
+    // Roll over the block and it zooms in on the spot under the cursor; the chip nearest the
+    // cursor takes over the board. Roll off and it zooms back out.
+    var inside = !coarse && !reduce && ptr.on && !overNav && ptr.x > A.bx0 && ptr.x < A.bx1 && ptr.y > A.by0 && ptr.y < A.by1;
+    A.zoom += ((inside ? ZOOM : 1) - A.zoom) * 0.055;
+    if (inside) { A.fx += (ptr.x - A.fx) * 0.07; A.fy += (ptr.y - A.fy) * 0.07; }
+    var Z = A.zoom, hov = -1;
+    if (inside && Z > 1.2) {
+      var best = (A.s * 2.2 * Z) * (A.s * 2.2 * Z);
+      for (i = 0; i < n; i++) {
+        c = A.chips[i];
+        var pp = proj3(A, c.x, A.cyl[c.cyl].py + c.y, c.z), dx = A.fx + (pp[0] - A.fx) * Z - ptr.x, dy = A.fy + (pp[1] - A.fy) * Z - ptr.y;
+        if (dx * dx + dy * dy < best) { best = dx * dx + dy * dy; hov = i; }
       }
-      c = A.chips[AG[k]];
-      var hl = 1 + 0.7 * Math.pow(c.front, 6) * (AG[k] === at ? 1 : 0);    // the chip at the front swells, so its icon reads
-      if (r === 2) {
-        var u = AU[k], vis = u <= g;
-        put3(A, k, c.x * u * 0.94 + AX[k], A.ringY + AY[k], c.z * u * 0.94, vis ? A.base * 0.85 : 0, undefined, A.zr);
+    }
+    m = A.cyl[A.active].ids.length;
+    var at = A.cyl[A.active].ids[((Math.round(A.cyl[A.active].turn) % m) + m) % m], feat = hov >= 0 ? hov : at;
+    showOnBoard(feat);
+    var g = clamp01((t - 150) / 650), on = t > 700 ? 1 : 0, spineLen = A.spineBot - A.spineTop;
+    for (k = 0; k < N; k++) {
+      var r = AR[k], x, y, z, size;
+      if (r === 0) { put3(A, k, AX[k], AY[k], AZ[k], A.base * 0.9 * g, undefined, A.zr); continue; }
+      if (r === 7) {                         // packets zipping up and down the spine
+        var p7 = t / 1100 + AU[k], u7 = p7 - Math.floor(p7);
+        y = AG[k] ? A.spineTop + u7 * spineLen : A.spineBot - u7 * spineLen;
+        put3(A, k, 0, y, 0, on * A.base * (1.5 - AX[k] * 1.1), undefined, A.zr); continue;
+      }
+      if (r === 1 || r === 6) {              // the rings' traces, and the current running round them
+        C = A.cyl[AG[k]]; M = C.M;
+        var ang = r === 1 ? C.dir * AU[k] + C.yaw : AU[k] - C.dir * t * 0.0016, rad = A.R * AX[k] * (r === 1 ? g : 1);
+        var lx1 = Math.cos(ang) * rad, lz1 = -Math.sin(ang) * rad;
+        size = r === 1 ? A.base * 0.8 * (1 + 0.6 * C.glow) : on * A.base * (1.35 - AZ[k] * 1) * (1 + 0.8 * C.glow);
+        put3(A, k, M[0] * lx1 + M[2] * lz1, C.py + M[3] * lx1 + M[5] * lz1, M[6] * lx1 + M[8] * lz1, size, undefined, A.zr); continue;
+      }
+      c = A.chips[AG[k]]; C = A.cyl[c.cyl];
+      if (r === 2) {                         // spokes from the spine out to each chip
+        var u = AU[k];
+        put3(A, k, c.x * u * 0.94 + AX[k], C.py + c.y * u * 0.94 + AY[k], c.z * u * 0.94, u <= g ? A.base * 0.85 : 0, undefined, A.zr);
       } else if (r === 3 || r === 4) {
-        x = c.x + AX[k] * c.tx * hl; y = A.ringY + AY[k] * hl; z = c.z + AX[k] * c.tz * hl;
-        if (r === 3) size = A.base * (g > 0.6 ? 1 : 0) * (AG[k] === at ? 1.25 : 1);
+        // the featured chip swells so its icon reads: the one under the cursor, or the firing ring's front chip
+        var hl = 1 + (AG[k] === feat ? (hov >= 0 ? 0.45 : 0.7 * Math.pow(c.front, 6)) : 0);
+        var ax = AX[k] * c.cw - AZ[k] * c.sw, az0 = AX[k] * c.sw + AZ[k] * c.cw;     // turn about its own upright
+        var ay = AY[k] * c.cn - az0 * c.sn, az = AY[k] * c.sn + az0 * c.cn;          // then nod
+        x = c.x + (ax * c.tx + ay * c.ux + az * c.nx) * hl;
+        y = C.py + c.y + (ax * c.ty + ay * c.uy + az * c.ny) * hl;
+        z = c.z + (ax * c.tz + ay * c.uz + az * c.nz) * hl;
+        if (r === 3) size = A.base * (g > 0.6 ? 1 : 0) * (AU[k] ? 0.72 : 0.85) * (AG[k] === feat ? 1.15 : 1) * (1 + 0.2 * C.glow);
         else {
           var p = PROJECTS[AG[k]].status, lv = p === 'done' ? 1 : p === 'almost' ? 0.55 + 0.45 * Math.sin(t * 0.004) : (Math.floor(t / 180 + AG[k]) % 2 ? 1.4 : 0.35);
-          if (AG[k] === at) lv *= 1.5;
-          size = t > 700 ? A.base * 1.4 * lv : 0;
+          if (AG[k] === feat) lv *= 1.5;
+          size = on * A.base * 1.05 * lv * (1 + 0.4 * C.glow);
         }
         put3(A, k, x, y, z, size, undefined, A.zr);
-      } else {                               // pulses hop from the spine out to each chip: do-do-do
-        var ph = (t - 700 - AG[k] * 150) / SCHEM_LOOP, qq = ph - Math.floor(ph), st = Math.floor(qq * SCHEM_STEPS) / SCHEM_STEPS;
-        put3(A, k, c.x * st * 0.94 + AX[k], A.ringY + AY[k], c.z * st * 0.94 + AZ[k], ph > 0 ? A.base * (AG[k] === at ? 1.9 : 1.4) : 0, undefined, A.zr);
+      } else {                               // streaks: up the spine from the base, then out along a spoke to a chip
+        var d1 = A.spineBot - C.py, d2 = A.R * 0.94, p5 = t / 1500 + AU[k], u5 = p5 - Math.floor(p5), sd = u5 * (d1 + d2);
+        if (sd < d1) { x = 0; y = A.spineBot - sd; z = 0; }
+        else { var f = (sd - d1) / A.R; x = c.x * f; y = C.py + c.y * f; z = c.z * f; }
+        put3(A, k, x, y, z, on * A.base * (1.5 - AX[k] * 1.1) * (0.6 + 1.1 * C.glow) * (c.cyl === A.active ? 1.2 : 1), undefined, A.zr);
+      }
+    }
+    // the zoom, plus a gentle dip through the block each time a cylinder fires
+    var since = now - A.lastFire, jolt = reduce ? 0 : Math.sin(Math.min(1, since / 700) * Math.PI) * 2;
+    var gs = 1 + (Z - 1) * 0.25, y0 = box.y - 4, y1 = box.y + box.h + 4;
+    if (Z > 1.002 || jolt) {
+      for (k = 0; k < N; k++) {
+        var Y = A.fy + (ty[k] - A.fy) * Z + jolt;
+        tx[k] = A.fx + (tx[k] - A.fx) * Z; ty[k] = Y;
+        if (Z > 1.002) ts[k] = (Y < y0 || Y > y1) ? 0 : ts[k] * gs;   // keep the zoomed block inside its area
       }
     }
   }
@@ -1653,8 +1694,8 @@ footer a:hover{text-decoration:underline}
     while (sig.length < 4) sig = '0' + sig;
     hudEl.textContent = 'root@flick:~$ ./run ' + (current === 'wordmark' ? 'flick' : current || 'idle') +
       '\npts ' + N + '  fps ' + Math.round(fpsS) + '  sig 0x' + sig +
-      '\n' + (current === 'chaos'
-        ? 'SCORE ' + GAME.score + '  x' + (now - GAME.last < 1400 ? GAME.combo : 0) + '  BEST ' + GAME.best
+      '\n' + (current === 'chaos' && anim && anim.kind === 'chaos'
+        ? 'ATTRACTOR ' + ATTRACTORS[anim.ai].name + '  ' + bits.slice(0, 8)
         : (GL.on ? '!! SIGNAL CORRUPT  ' : '') + bits.slice(0, 8) + ' ' + bits.slice(8));
   }
 
