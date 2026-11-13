@@ -301,7 +301,7 @@ footer a:hover{text-decoration:underline}
     ? { chaos: 'Drag through the flow to disturb it. Tap for a new attractor.', photography: 'Tap to take a shot.', systems: 'Tap for the next project.' }
     : { chaos: 'Shoot the star through the flow to break it up. Click to morph into a new attractor.',
         photography: 'Move to aim the camera. Click to take a shot.',
-        systems: 'Roll over the engine to zoom in on a project. Click to fire the next one.' };
+        systems: 'Click a project to bring it forward. Click the front one for the next.' };
   hint(HINT);
 
   function noField() { document.documentElement.classList.add('no-field'); canvas.style.display = 'none'; }
@@ -549,169 +549,10 @@ footer a:hover{text-decoration:underline}
         if (r < 0.22 && az > 0.06) { var fj = clamp01(az / 3.6); BR[k] = 0.62 + 0.38 * (1 - fj); BG[k] = 0.88 + 0.12 * (1 - fj); BB[k] = 1; return 1.8 - 0.7 * fj; }
         if (r <= 1) { var u = clamp01((r - 0.08) / 0.92); BR[k] = 1; BG[k] = 0.97 - 0.3 * u; BB[k] = 0.92 - 0.72 * u; return 1.7 - 0.8 * u; }
         BR[k] = 0.62; BG[k] = 0.2; BB[k] = 0.85; return 0.7;
-      } },
-    // Not a flow at all: an atom splitting. Electrons circle a nucleus of red protons and blue
-    // neutrons; a neutron streaks in and hits it; the nucleus wobbles, stretches into a peanut
-    // and snaps in two, three neutrons shoot out, and it goes off like a hydrogen bomb, slowly:
-    // a white flash and shock front, a fireball that climbs and rolls into a mushroom cap on a
-    // rising stem, a surge rolling out over the ground, all cooling from white through orange
-    // and red to smoke. Then it all rewinds back into the atom, and loops. Seen nearly side on.
-    { name: 'FISSION', params: 'n + U-235  ->  Ba + Kr + 3n  ->  fireball  ->  rewind', hold: 30000, pitch: 0.1, script: fissionFrame }
+      } }
   ];
   var ATT_O = [0, 0, 0], ATT_MORPH = 16000;
   var ATT_COLS = [[0.25, 0.84, 1], [1, 0.3, 0.82], [1, 0.8, 0.25]];   // slow, medium, fast
-  /* ---- Fission: the atom-splitting loop (see its entry in ATTRACTORS) ----
-     Positions are worked out fresh every frame from the time in the loop, in a unit box,
-     so nothing needs integrating. Dots are shared out: most make the nucleons (each a little
-     ball of dots), then the electron rings and electrons, four neutrons (one incoming, three
-     released) and the energy shell. */
-  var FIS_FWD = 10500, FIS_BACK = 4500, FIS_NN = 56, FIS = null, FIS_O = [0, 0, 0];   // ms played forward, ms to rewind
-  function fisFrac(x) { return x - Math.floor(x); }
-  function fisOut(u) { u = clamp01(u); return 1 - (1 - u) * (1 - u) * (1 - u); }   // fast start, slow finish: a blast, not a swell
-  function fisHash(i, seed) { return fisFrac(Math.sin(i * 12.9898 + seed * 78.233) * 43758.5453); }   // a fixed random 0..1 per dot
-  function fisSphere(m, M, o) {               // point m of M spread evenly over a unit sphere
-    var y = 1 - 2 * (m + 0.5) / M, r = Math.sqrt(Math.max(0, 1 - y * y)), th = m * 2.39996;
-    o[0] = Math.cos(th) * r; o[1] = y; o[2] = Math.sin(th) * r;
-  }
-  function fisSetup() {
-    if (FIS) return FIS;
-    var nuc = [], i;
-    for (i = 0; i < FIS_NN; i++) {           // nucleons packed in a ball, from a fixed pseudo-random sequence
-      var h1 = fisFrac(Math.sin(i * 12.9898) * 43758.5453), h2 = fisFrac(Math.sin(i * 78.233) * 12345.678), h3 = fisFrac(Math.sin(i * 39.425) * 24634.6345);
-      var r = 0.27 * Math.cbrt(0.12 + 0.88 * h1), th = h2 * 6.283, cz = h3 * 2 - 1, sq = Math.sqrt(1 - cz * cz);
-      nuc.push({ x: r * sq * Math.cos(th), y: r * sq * Math.sin(th), z: r * cz, p: i % 2 === 0, side: 1 });
-    }
-    nuc.slice().sort(function (a, b) { return a.x - b.x; }).forEach(function (n, j) { n.side = j < FIS_NN / 2 ? -1 : 1; });
-    var mean = { '-1': [0, 0, 0], '1': [0, 0, 0] }, half = FIS_NN / 2;
-    nuc.forEach(function (n) { var m = mean[n.side]; m[0] += n.x / half; m[1] += n.y / half; m[2] += n.z / half; });
-    var dirs = [];
-    for (i = 0; i < 3; i++) { var a = i / 3 * 6.283 + 0.5, el = (i - 1) * 0.6; dirs.push([Math.cos(a) * Math.cos(el), Math.sin(el), Math.sin(a) * Math.cos(el)]); }
-    FIS = { nuc: nuc, mean: mean, dirs: dirs };
-    return FIS;
-  }
-  // the blast cools from white through yellow, orange and deep red to smoke; h runs 0 to 1
-  var FIS_HEAT = [[0, 1, 1, 0.92], [0.18, 1, 0.86, 0.45], [0.42, 1, 0.5, 0.15], [0.68, 0.78, 0.2, 0.12], [1, 0.3, 0.22, 0.3]];
-  function fisHeat(h, k, dim) {
-    var i = 1;
-    while (i < FIS_HEAT.length - 1 && h > FIS_HEAT[i][0]) i++;
-    var a = FIS_HEAT[i - 1], b = FIS_HEAT[i], u = clamp01((h - a[0]) / (b[0] - a[0]));
-    BR[k] = (a[1] + (b[1] - a[1]) * u) * dim; BG[k] = (a[2] + (b[2] - a[2]) * u) * dim; BB[k] = (a[3] + (b[3] - a[3]) * u) * dim;
-  }
-  function fissionFrame(A, now) {
-    // A seamless loop: play forward through the blast, then rewind smoothly back into the atom
-    // (easing to a stop at each turn), and go again, so it never cuts or fades to a new start.
-    var cyc = (now - A.ts) % (FIS_FWD + FIS_BACK);
-    var F = fisSetup(), t = cyc < FIS_FWD ? cyc : FIS_FWD * (1 - ease((cyc - FIS_FWD) / FIS_BACK)), S = A.S, o = FIS_O, k;
-    var nN = (N * 0.4) | 0, per = Math.max(1, Math.floor(nN / FIS_NN)), nRing = (N * 0.06) | 0, nEl = (N * 0.03) | 0, nNeu = (N * 0.04) | 0;
-    var b1 = nN + nRing, b2 = b1 + nEl, b3 = b2 + nNeu, perNeu = Math.ceil(nNeu / 4), nX = N - b3;
-    var x0 = (nX * 0.06) | 0, x1 = x0 + ((nX * 0.1) | 0), x2 = x1 + ((nX * 0.4) | 0), x3 = x2 + ((nX * 0.2) | 0);
-    var hit = ease(clamp01((t - 1700) / 800)), split = t > 2500, s = (t - 2500) / 1000;
-    var fade = 1 - clamp01((t - 2900) / 800);
-    var D = 0.2 + s * 0.55 + s * s * 0.45;                       // the halves push apart, faster and faster
-    var ringVis = 1 - clamp01((t - 1700) / 900), ringR = 0.8 * (1 + 0.9 * hit);
-    // the blast, timed from the split
-    var e = t - 2500, live = e >= 0, gone = 1 - clamp01((e - 7000) / 1500);
-    var heat = clamp01(e / 6500), yc = -0.6 * ease(clamp01(e / 6500)), GND = 0.75;
-    var rf = 0.12 + 0.36 * fisOut(e / 700), mt = ease(clamp01((e - 1200) / 2500)), boil = 0.04 * (1 - 0.5 * heat);
-    var grow = ease(clamp01((e - 1200) / 5000)), Rt = 0.2 + 0.32 * grow, rt = 0.13 + 0.1 * grow;
-    var stemUp = ease(clamp01((e - 1500) / 2500)), stemTop = GND + (yc + 0.08 - GND) * stemUp;
-    var on = ptr.on && ptr.field && !overNav && !reduce, PR = 38, PR2 = PR * PR;
-    for (k = 0; k < N; k++) {
-      var x, y, z, sz, R = 1, G = 1, B = 1, own = false;
-      if (k < nN) {                                              // nucleons: little balls of dots
-        var j = k % FIS_NN, n = F.nuc[j], cx, cy, cz;
-        fisSphere((k / FIS_NN) | 0, per, o);
-        if (!split) {                                            // calm, then hit: wobble and stretch into a peanut
-          var jig = 0.006 * Math.sin(now * 0.02 + j * 1.7) + 0.02 * hit * Math.sin(now * 0.045 + n.x * 20);
-          var pinch = 1 - 0.32 * hit * (1 - Math.min(1, Math.abs(n.x) / 0.27));
-          cx = n.x * (1 + 0.9 * hit) + n.side * 0.12 * hit + jig; cy = n.y * pinch + jig * 0.7; cz = n.z * pinch;
-          sz = 1;
-        } else {                                                 // two fragments flying apart, swallowed by the fireball
-          var mn = F.mean[n.side];
-          cx = n.side * D + (n.x - mn[0]); cy = n.y - mn[1]; cz = n.z - mn[2];
-          sz = fade;
-        }
-        x = cx + o[0] * 0.058; y = cy + o[1] * 0.058; z = cz + o[2] * 0.058;
-        // dimmer and smaller than they look: the balls overlap and the dots add up, so at full
-        // strength the middle of the nucleus burns to white instead of staying red and blue
-        if (n.p) { R = 0.72; G = 0.18; B = 0.32; } else { R = 0.26; G = 0.52; B = 0.72; }
-        sz *= 0.72;
-      } else if (k < b2) {                                       // electron rings, and the electrons racing round them
-        var q = k - nN, el = k >= b1, ring = q % 3, a;
-        if (el) a = now * 0.0034 * (1 + ring * 0.35) + ring * 2.1 + ((q / 3) | 0) % 9 * 0.012;
-        else a = ((q / 3) | 0) / (nRing / 3) * 6.283;
-        var rr = ringR * (el ? 1 + ((q * 7) % 5 - 2) * 0.008 : 1), lx = Math.cos(a) * rr, lz = Math.sin(a) * rr;
-        var inc = [0.25, 1.2, -1.2][ring], ph = ring * 1.05, ly = -lz * Math.sin(inc); lz = lz * Math.cos(inc);
-        x = lx * Math.cos(ph) + lz * Math.sin(ph); y = ly; z = -lx * Math.sin(ph) + lz * Math.cos(ph);
-        if (el) { R = 0.62; G = 1; B = 0.72; sz = 1.7 * ringVis; } else { R = 0.25; G = 0.6; B = 0.95; sz = 0.6 * ringVis; }
-      } else if (k < b3) {                                       // neutrons: one coming in, three let loose
-        var q2 = k - b2, bn = q2 % 4, cx2, cy2, cz2;
-        fisSphere((q2 / 4) | 0, perNeu, o);
-        if (bn === 0) {
-          var u = clamp01((t - 400) / 1300); u *= u;            // speeding in
-          cx2 = -1.7 + 1.4 * u; cy2 = -0.25 * (1 - u); cz2 = 0.35 * (1 - u); sz = t > 400 && t < 1750 ? 1.2 : 0;
-        } else {
-          var dir = F.dirs[bn - 1], dd = split ? s * 1.5 : 0;
-          cx2 = dir[0] * dd; cy2 = dir[1] * dd; cz2 = dir[2] * dd; sz = split ? 1.2 * (1 - clamp01((t - 3600) / 800)) : 0;
-        }
-        x = cx2 + o[0] * 0.055; y = cy2 + o[1] * 0.055; z = cz2 + o[2] * 0.055;
-        R = 0.72; G = 0.9; B = 1;
-      } else if (!live) {                                        // the blast waits for the split
-        x = y = z = 0; sz = 0;
-      } else {
-        var qx = k - b3; own = true;
-        if (qx < x0) {                                           // the flash: a blinding white core
-          fisSphere(qx, x0, o); var rc = 0.05 + 0.5 * fisOut(e / 350);
-          x = o[0] * rc; y = o[1] * rc + yc; z = o[2] * rc;
-          sz = 3.2 * Math.pow(1 - clamp01(e / 700), 1.5); BR[k] = 1; BG[k] = 1; BB[k] = 0.95;
-        } else if (qx < x1) {                                    // the shock front, racing out
-          fisSphere(qx - x0, x1 - x0, o); var us = clamp01(e / 1100), rs = 0.1 + fisOut(us) * 2;
-          x = o[0] * rs; y = o[1] * rs; z = o[2] * rs;
-          sz = 1.1 * (1 - us); BR[k] = 0.8; BG[k] = 0.9; BB[k] = 1;
-        } else if (qx < x2) {                                    // fireball, rolling into the mushroom cap
-          var qi = qx - x1, M1 = x2 - x1, ua = fisHash(qi, 1) * 6.283, va = fisHash(qi, 2) * 6.283 + e * 0.0011 * (0.5 + fisHash(qi, 11));   // independent angles round the ring and the tube; each dot rolls at its own pace
-          fisSphere(qi, M1, o);
-          var rough = rf * (0.78 + 0.4 * fisHash(qi, 3)), sx = o[0] * rough, sy = o[1] * rough, sz0 = o[2] * rough;   // a boiling, uneven fireball
-          // a ring vortex: dots climb the outside of the tube and roll back down the inside
-          var rtj = rt * (0.7 + 0.5 * fisHash(qi, 4)), tr2 = Rt + rtj * Math.cos(va), tx3 = Math.cos(ua) * tr2, tz3 = Math.sin(ua) * tr2, ty3 = -rtj * Math.sin(va) * 0.9;
-          // churning: every dot jitters on its own quick rhythm, so the cloud boils instead of gliding
-          var bp = fisHash(qi, 12) * 40;
-          x = sx + (tx3 - sx) * mt + Math.sin(now * 0.007 + bp) * boil;
-          y = yc + sy + (ty3 - sy) * mt + Math.sin(now * 0.0083 + bp * 1.3) * boil;
-          z = sz0 + (tz3 - sz0) * mt + Math.sin(now * 0.0061 + bp * 0.7) * boil;
-          var core = 0.5 - 0.5 * Math.cos(va) * mt;              // the inner, rolling side stays hotter
-          var flick = (fisHash(qi, 13) - 0.5) * 0.3 + 0.08 * Math.sin(now * 0.012 + bp);   // uneven, flickering hot spots
-          fisHeat(clamp01(heat * (0.75 + 0.5 * (1 - core)) + flick), k, 0.9);
-          sz = 1.15 * gone;
-        } else if (qx < x3) {                                    // the stem, dust and smoke drawn up into the cap
-          var qs = qx - x2, hp = fisFrac(fisHash(qs, 5) + e * 0.00009), ang = fisHash(qs, 6) * 6.283 + e * 0.0006;
-          var rad = (0.06 + 0.12 * Math.pow(1 - hp, 3)) * (0.7 + 0.3 * stemUp) * Math.sqrt(fisHash(qs, 7));   // filled, not just a skin
-          var sp2 = fisHash(qs, 14) * 40;
-          x = Math.cos(ang) * rad + Math.sin(now * 0.008 + sp2) * boil * 0.6; z = Math.sin(ang) * rad; y = GND + (stemTop - GND) * hp;
-          fisHeat(clamp01(heat * 0.8 + 0.25 + (1 - hp) * 0.25), k, 0.8);
-          sz = stemUp > 0.02 ? 0.9 * gone : 0;
-        } else if (fisHash(qx, 15) < 0.3) {                       // debris: glowing sparks flung up and falling back
-          var ad = fisHash(qx, 16) * 6.283, vh = 0.3 + 1.1 * fisHash(qx, 17), vu = 0.7 + 1.2 * fisHash(qx, 18), tau = e / 1000;
-          x = Math.cos(ad) * vh * tau; z = Math.sin(ad) * vh * tau; y = -vu * tau + 0.55 * tau * tau;   // thrown, then pulled down
-          var dl = clamp01(tau / 3.2);
-          fisHeat(clamp01(0.05 + dl * 0.85), k, 1.15);
-          sz = y < GND ? 1.25 * (1 - dl) * (0.6 + 0.4 * Math.sin(now * 0.03 + qx)) : 0;
-        } else {                                                 // the base surge rolling out across the ground
-          var qg = qx - x3, ag = fisHash(qg, 8) * 6.283, ug = clamp01((e - 250) / 4200);
-          var rg = 0.08 + 1.35 * Math.pow(ease(ug), 0.8) * (0.55 + 0.6 * fisHash(qg, 9));
-          x = Math.cos(ag) * rg; z = Math.sin(ag) * rg; y = GND - fisHash(qg, 10) * 0.12 * (1 - ug * 0.4);
-          fisHeat(clamp01(0.45 + heat * 0.6), k, 0.75);
-          sz = e > 250 ? 0.85 * gone * (1 - ug * 0.35) : 0;
-        }
-      }
-      if (!own) { BR[k] = R; BG[k] = G; BB[k] = B; }
-      put3(A, k, x * S, y * S, z * S, A.base * sz, undefined, A.zr);
-      if (on) {                                                  // the shooting star nudges dots aside as it passes
-        var dx = tx[k] - ptr.x, dy = ty[k] - ptr.y, d2 = dx * dx + dy * dy;
-        if (d2 < PR2) { var d = Math.sqrt(d2) + 0.01, fo = 1 - d / PR, pu = 16 * fo * fo; tx[k] += dx / d * pu; ty[k] += dy / d * pu; }
-      }
-    }
-  }
   function attStep(at, k, h) {               // one midpoint (RK2) step; returns the speed
     var x = AX[k], y = AY[k], z = AZ[k], o = ATT_O;
     at.f(x, y, z, o);
@@ -724,9 +565,6 @@ footer a:hover{text-decoration:underline}
   // Put the whole swarm on attractor `ai`: a few dozen seeds settle onto it, then each seed
   // lays down a run of dots along its own path, so the dots start out as flowing streams.
   function seedAttractor(A, ai) {
-    if (ATTRACTORS[ai].script) {             // a scripted loop: nothing to seed, just start its clock
-      A.ai = ai; A.ts = performance.now(); A.vref = 1; A.next = A.ts + (ATTRACTORS[ai].hold || ATT_MORPH); return;
-    }
     var at = ATTRACTORS[ai], S = 40, per = Math.ceil(N / S), k = 0, i, j, vs = 0, tmp = N - 1;
     for (i = 0; i < S && k < N; i++) {
       AX[tmp] = at.c[0] + rnd(-0.4, 0.4) / at.k; AY[tmp] = at.c[1] + rnd(-0.4, 0.4) / at.k; AZ[tmp] = at.c[2] + rnd(-0.4, 0.4) / at.k;
@@ -769,7 +607,6 @@ footer a:hover{text-decoration:underline}
     A.ly += ((on ? (ptr.x - A.cx) / box.w * 1.1 : 0) - A.ly) * 0.04;
     A.lp += ((on ? (ptr.y - A.cy) / box.h * 0.7 : 0) - A.lp) * 0.04;
     view3(A, A.yaw + A.ly, (at.pitch === undefined ? 0.32 : at.pitch) + A.lp);
-    if (at.script) { at.script(A, now); return; }
     var lensE = at.lens ? at.lens * A.S : 0, lensE2 = lensE * lensE, hole = at.lens ? proj3(A, 0, 0, 0) : null;
     var h = reduce ? 0 : at.dt * dt / 16.7, S = A.S, vr = 1 / A.vref;
     // The shooting star punches through the flow: dots in a narrow band around it are thrown
@@ -1038,16 +875,15 @@ footer a:hover{text-decoration:underline}
     }
   }
 
-  /* ---- Systems: the work as a four-cylinder engine block ----
-     Four rings of chips stacked on one spine like the cylinders of a block, each
-     ring tipped onto its own plane. The planes slowly wheel round, neighbouring
-     rings turn opposite ways, the rings ride up and down on a crank like pistons,
-     and they fire in an engine's 1-3-4-2 order: the firing ring kicks a step and
-     flashes, the block shudders, its front chip swells, and the board under the
-     block shows that project. Roll over the block and it zooms in under the cursor. Data streaks race up the spine and out
-     along the spokes, packets zip up and down the spine, and current runs round
-     every ring. */
+  /* ---- Systems: a showcase of the work ----
+     One project at a time, big and front on: a thick 3D tile with its icon raised off the
+     face, turning gently so you see its depth, and the board under it naming the project.
+     Its neighbours wait either side, smaller, set back and angled in toward it like covers
+     on a shelf, fading out further away. Every few seconds the row glides along to the next
+     one; click a side tile to bring it forward, or the front one for the next. A thin rail
+     of light runs under the row with data pulses travelling along it. */
   var PROJECTS = [
+    { name: "Jo's Famous Pizza", status: 'done', icon: 'pizza' },
     { name: 'Flick Systems', status: 'progress', icon: 'hub' },
     { name: 'Chaos portfolio', status: 'progress', icon: 'chaos' },
     { name: 'Newcastle Flow', status: 'almost', icon: 'flow' },
@@ -1068,7 +904,6 @@ footer a:hover{text-decoration:underline}
     almost:   { label: 'Almost',      rgb: [1, 0.77, 0.24] },
     progress: { label: 'In progress', rgb: [0.3, 0.79, 1] }
   };
-  var CYL = 4, FIRE_ORDER = [0, 2, 3, 1], FIRE_EVERY = 1900;   // rings, firing order, ms between firings
   var schemEl = document.getElementById('schem'), board = null, boardShown = -1;
   function proj3(A, x, y, z) {               // same maths as put3, returning screen x, y, scale, depth
     var x2 = x * A.cY - z * A.sY, z2 = x * A.sY + z * A.cY, y3 = y * A.cP - z2 * A.sP, z3 = y * A.sP + z2 * A.cP, p = A.F / (A.F + z3);
@@ -1081,7 +916,7 @@ footer a:hover{text-decoration:underline}
     board.className = 'sx-board ' + p.status;
     var nm = board.querySelector('.sx-name'), t = performance.now(); nm.dataset.txt = p.name; nm.textContent = p.name; scramble(nm, 300);
     board.querySelector('.sx-st').textContent = STATUS[p.status].label;
-    // the engine fires faster than the flip takes, so flip at most every couple of seconds; in between the name just decodes
+    // flip at most every second or so; quicker changes (clicking along the row) just decode the name
     if (t - (board._flip || 0) > 1200) {
       board._flip = t;
       var face = board.querySelector('.sx-face');
@@ -1090,7 +925,7 @@ footer a:hover{text-decoration:underline}
   }
   /* Chip icons: one small line drawing per project, in a unit box (-1..1, y down),
      scaled onto the chip. The status LED sits on the chip's top-right corner. tint colours an icon; the rest are white. */
-  var ICON_TINT = { pill: [1, 0.26, 0.3] };
+  var ICON_TINT = { pill: [1, 0.26, 0.3], pizza: [1, 0.5, 0.36] };
   function poly(pts, closed) {
     var out = [];
     for (var i = 0; i + 1 < pts.length; i++) out.push([pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]]);
@@ -1174,6 +1009,12 @@ footer a:hover{text-decoration:underline}
       return poly([[-0.95, 0.1], [-0.48, 0.1], [-0.32, -0.22], [-0.14, 0.52], [0.06, -0.78], [0.24, 0.38], [0.38, 0.1], [0.95, 0.1]], false)
         .concat(circleSegs(0.72, 0.1, 0.09, 6));
     },
+    pizza: function () {                     // Jo's Famous Pizza: a slice, crust up, with pepperoni
+      return poly([[-0.8, -0.55], [-0.45, -0.78], [0, -0.86], [0.45, -0.78], [0.8, -0.55]], false)
+        .concat([[-0.8, -0.55, 0, 0.95], [0.8, -0.55, 0, 0.95]],
+                poly([[-0.66, -0.4], [0, -0.6], [0.66, -0.4]], false),
+                circleSegs(-0.24, -0.2, 0.14, 8), circleSegs(0.26, -0.24, 0.12, 8), circleSegs(0.02, 0.24, 0.12, 8));
+    },
     helmet: function () {                    // a Spartan helmet, front on, with its crest
       return arcSegs(0, 0.05, 0.62, Math.PI, Math.PI * 2, 10)
         .concat([[-0.62, 0.05, -0.52, 0.9], [0.62, 0.05, 0.52, 0.9]],
@@ -1186,238 +1027,152 @@ footer a:hover{text-decoration:underline}
     var f = ICONS[name];
     return (f ? f() : rectSegs(-0.4, -0.4, 0.4, 0.4)).map(function (g) { return [g[0] * S, g[1] * S, g[2] * S, g[3] * S]; });
   }
-  // Rotation by angle a about the level axis pointing at angle phi (Rodrigues), as a flat 3x3
-  function tiltMatrix(phi, a) {
-    var ux = Math.cos(phi), uz = Math.sin(phi), c = Math.cos(a), s = Math.sin(a), C = 1 - c;
-    return [c + ux * ux * C, -uz * s, ux * uz * C,
-            uz * s,          c,       -ux * s,
-            uz * ux * C,     ux * s,  c + uz * uz * C];
+  // Scatter dots along 3D line segments [x1, y1, z1, x2, y2, z2], starting at particle k0.
+  function seg3fill(segs, k0, n, jit) {
+    var tot = 0, cum = [], i, k;
+    for (i = 0; i < segs.length; i++) { tot += Math.hypot(segs[i][3] - segs[i][0], segs[i][4] - segs[i][1], segs[i][5] - segs[i][2]); cum.push(tot); }
+    for (k = k0; k < k0 + n; k++) {
+      var u = Math.random() * tot; i = 0;
+      while (cum[i] < u) i++;
+      var g = segs[i], pv = i ? cum[i - 1] : 0, f = (u - pv) / ((cum[i] - pv) || 1);
+      AX[k] = g[0] + (g[3] - g[0]) * f + rnd(-jit, jit); AY[k] = g[1] + (g[4] - g[1]) * f + rnd(-jit, jit); AZ[k] = g[2] + (g[5] - g[2]) * f + rnd(-jit, jit);
+    }
   }
-  var ZOOM = 2.4;                          // how far it zooms in under the cursor
-  var CYL_RGB = [[0.24, 1, 0.54], [0.3, 0.79, 1], [1, 0.22, 0.52], [1, 0.8, 0.22]];   // green, cyan, magenta, amber
-  function cylRGB(k, j, f, w) { var c = CYL_RGB[j]; setRGB(k, (c[0] + (1 - c[0]) * w) * f, (c[1] + (1 - c[1]) * w) * f, (c[2] + (1 - c[2]) * w) * f); }   // w mixes toward white
-  function initSchematic(now) {
-    var n = PROJECTS.length, i, j, k = 0, e, q, tall = box.h > box.w;
-    var tilt = 0.2, pitch = tall ? 0.42 : 0.26;
-    // size it as big as the area allows: try a radius, measure the block's height on screen, scale to fit
-    function geom(R) {
-      var s = Math.max(13, Math.min(30, R * 0.16)), H = R * 0.85, gap = H / (CYL - 1);
-      return { R: R, s: s, H: H, gap: gap, top: -H / 2, stroke: gap * 0.2, lean: R * Math.sin(tilt * 1.35) };
-    }
-    function span(G) {
-      var T = { cx: 0, cy: 0, F: G.R * 3.2 }; view3(T, 0, pitch);
-      var hi = proj3(T, 0, G.top - G.stroke - G.lean - G.s, G.R), lo = proj3(T, 0, G.top + G.H + G.stroke + G.lean + G.s * 1.3, -G.R);
-      return [hi[1], lo[1]];
-    }
-    // (the measure is a worst case: the top ring's back edge tipped up while its piston is at the top,
-    // which never all happens at once, so let it run a quarter over)
-    var G = geom(Math.min(box.w * (tall ? 0.44 : 0.38), box.h * 0.75)), sp = span(G), room = (box.h - 74) * 1.25;
-    if (sp[1] - sp[0] > room) { G = geom(G.R * room / (sp[1] - sp[0])); sp = span(G); }
-    var R = G.R, s = G.s, cyl = [], chips = [];
-    for (j = 0; j < CYL; j++) cyl.push({ y: G.top + j * G.gap, py: 0, ids: [], dir: j % 2 ? -1 : 1, turn: j ? 0.5 : 0, target: j ? 0.5 : 0,
-                                         phi0: j * Math.PI / 2 + 0.6, crank: j === 1 || j === 2 ? Math.PI : 0, fired: -1e9, glow: 0, yaw: 0, M: null });
-    for (i = 0; i < n; i++) { cyl[i % CYL].ids.push(i); chips.push({ cyl: i % CYL, slot: (i / CYL) | 0, x: 0, y: 0, z: 0, tx: 1, ty: 0, tz: 0, ux: 0, uy: 1, uz: 0, nx: 0, ny: 0, nz: 1, cw: 1, sw: 0, cn: 1, sn: 0, front: 0 }); }
-    var spineTop = G.top - G.gap * 0.5 - G.stroke, spineBot = G.top + G.H + G.gap * 0.5 + G.stroke;
-    var nSpine = (N * 0.03) | 0, nRing = (N * 0.06) | 0, nSpoke = (N * 0.06) | 0, nChip = (N * 0.62) | 0, nLed = (N * 0.06) | 0;
-    var nStreak = (N * 0.07) | 0, nFlow = (N * 0.05) | 0, L = 8;
-    for (; k < nSpine; k++) { AR[k] = 0; AX[k] = rnd(-1.2, 1.2); AY[k] = rnd(spineTop, spineBot); AZ[k] = rnd(-1.2, 1.2); setRGB(k, 0.3, 0.5, 1); }
-    for (e = k + nRing; k < e; k++) { AR[k] = 1; AG[k] = k % CYL; AU[k] = rnd(0, 6.283); AX[k] = Math.random() < 0.65 ? 1 : 0.5; cylRGB(k, AG[k], 0.7, 0); }
-    for (e = k + nSpoke; k < e; k++) { AR[k] = 2; AG[k] = k % n; AU[k] = Math.random(); AX[k] = rnd(-0.8, 0.8); AY[k] = rnd(-0.8, 0.8); cylRGB(k, AG[k] % CYL, 0.55, 0); }
-    // Each chip is a solid: a cube on rings 1 and 3, a drum (a short cylinder facing out) on rings
-    // 2 and 4, drawn by its edges in local (across, down, depth) coordinates. The project's icon is
-    // extruded through the middle of it, front face, back face and a little of the sides between.
-    var h = s / 2, D = h * 0.8, ID = D * 0.4;
-    var cube = [], drum = [], cc = [[-h, -h], [h, -h], [h, h], [-h, h]];
+  var SHOW_EVERY = 2800, SHOW_BUF = 7, SHOW_D = 0.32;   // ms per project, tile buffers (the 7 tiles that can be on screen), tile half-depth
+  var SHOW_RGB = [[0.24, 1, 0.54], [0.3, 0.79, 1], [1, 0.22, 0.52], [1, 0.8, 0.22]];   // tile edges: green, cyan, magenta, amber
+  // Lay project p's tile into dot buffer b, in tile units (-1..1 across and down): the tile's
+  // edges, its icon raised off the front face, and its status light in the top-right corner
+  function showFill(A, b, p) {
+    var k0 = b * A.per, D = SHOW_D, segs = [], q, k, cc = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
     for (q = 0; q < 4; q++) {
       var p1 = cc[q], p2 = cc[(q + 1) % 4];
-      cube.push([p1[0], p1[1], -D, p2[0], p2[1], -D], [p1[0], p1[1], D, p2[0], p2[1], D], [p1[0], p1[1], -D, p1[0], p1[1], D]);
+      segs.push([p1[0], p1[1], -D, p2[0], p2[1], -D], [p1[0], p1[1], D, p2[0], p2[1], D], [p1[0], p1[1], -D, p1[0], p1[1], D]);
     }
-    for (q = 0; q < 20; q++) {
-      var a1 = q / 20 * 6.283, a2 = (q + 1) / 20 * 6.283, rr1 = h * 1.08;
-      var x1 = Math.cos(a1) * rr1, y1 = Math.sin(a1) * rr1, x2 = Math.cos(a2) * rr1, y2 = Math.sin(a2) * rr1;
-      drum.push([x1, y1, -D, x2, y2, -D], [x1, y1, D, x2, y2, D]);
-      if (q % 4 === 0) drum.push([x1, y1, -D, x1, y1, D]);
+    var nF = (A.per * 0.24) | 0, nL = (A.per * 0.03) | 0, nI = A.per - nF - nL, e = SHOW_RGB[p % 4];
+    var ic = ICON_TINT[PROJECTS[p].icon] || [0.96, 0.97, 0.98], st = STATUS[PROJECTS[p].status].rgb;
+    seg3fill(segs, k0, nF, 0.01);
+    for (k = k0; k < k0 + nF; k++) { AG[k] = b; AU[k] = 0; setRGB(k, e[0] * 0.85 + 0.12, e[1] * 0.85 + 0.12, e[2] * 0.85 + 0.12); }
+    onSegments(iconSegs(PROJECTS[p].icon, 0.72), k0 + nF, nI, 0.008);
+    for (k = k0 + nF; k < k0 + nF + nI; k++) {
+      AG[k] = b; AU[k] = 1; AZ[k] = Math.random() < 0.8 ? -D - 0.02 : rnd(-D - 0.02, -D * 0.4);   // mostly on the face, a little depth behind
+      setRGB(k, ic[0], ic[1], ic[2]);
     }
-    function onSegments3(sg, k0, cnt, jit) {
-      var tot = 0, cum = [], ii, kk;
-      for (ii = 0; ii < sg.length; ii++) { tot += Math.hypot(sg[ii][3] - sg[ii][0], sg[ii][4] - sg[ii][1], sg[ii][5] - sg[ii][2]); cum.push(tot); }
-      for (kk = k0; kk < k0 + cnt; kk++) {
-        var u = Math.random() * tot; ii = 0;
-        while (cum[ii] < u) ii++;
-        var g3 = sg[ii], pv = ii ? cum[ii - 1] : 0, f = (u - pv) / ((cum[ii] - pv) || 1);
-        AX[kk] = g3[0] + (g3[3] - g3[0]) * f + rnd(-jit, jit);
-        AY[kk] = g3[1] + (g3[4] - g3[1]) * f + rnd(-jit, jit);
-        AZ[kk] = g3[2] + (g3[5] - g3[2]) * f + rnd(-jit, jit);
-      }
+    for (k = k0 + nF + nI; k < k0 + A.per; k++) {
+      var a = rnd(0, 6.283), rr = Math.sqrt(Math.random()) * 0.07;
+      AG[k] = b; AU[k] = 2; AX[k] = 0.8 + Math.cos(a) * rr; AY[k] = -0.8 + Math.sin(a) * rr; AZ[k] = -D - 0.03;
+      setRGB(k, st[0], st[1], st[2]);
     }
-    var per = Math.floor(nChip / n), nFrame = (per * 0.28) | 0;
-    for (i = 0; i < n; i++) {
-      var ic = ICON_TINT[PROJECTS[i].icon] || [0.95, 0.96, 0.97];
-      onSegments3((i % CYL) % 2 ? drum : cube, k, nFrame, 0.2);
-      onSegments(iconSegs(PROJECTS[i].icon, h * 0.86), k + nFrame, per - nFrame, 0.12);   // tight to the line, so it reads crisp
-      for (q = k; q < k + per; q++) AU[q] = q < k + nFrame ? 0 : 1;   // 1 marks an icon dot
-      for (q = k + nFrame; q < k + per; q++) {           // raise the icon off the front face: mostly the face itself,
-        var rz = Math.random();                          // so it stays sharp, with a little of its sides behind
-        AZ[q] = rz < 0.78 ? -ID : rnd(-ID, -ID * 0.15);
-      }
-      for (e = k + per; k < e; k++) {
-        AR[k] = 3; AG[k] = i;
-        if (e - k > per - nFrame) cylRGB(k, i % CYL, 0.85, 0.35);   // body in its cylinder's colour, the icon stays white
-        else setRGB(k, ic[0], ic[1], ic[2]);
-      }
-    }
-    for (e = k + nLed; k < e; k++) {                      // status LED on the front face's top-right corner
-      var pi = k % n, a = rnd(0, 6.283), rr = Math.sqrt(Math.random()) * s * 0.1, c0 = STATUS[PROJECTS[pi].status].rgb;
-      AR[k] = 4; AG[k] = pi; AX[k] = h * 0.92 + Math.cos(a) * rr; AY[k] = -h * 0.92 + Math.sin(a) * rr; AZ[k] = -D;
-      setRGB(k, c0[0], c0[1], c0[2]);
-    }
-    // streaks: packets of L dots in a line, each dot a little behind the one in front (AX = how far back, 0..1)
-    for (e = k + nStreak; k < e; k += L) {
-      var ch = (Math.random() * n) | 0, ph0 = Math.random();
-      for (q = 0; q < L && k + q < e; q++) { AR[k + q] = 5; AG[k + q] = ch; AU[k + q] = ph0 - q * 0.011; AX[k + q] = q / L; cylRGB(k + q, ch % CYL, 1, 0.45); }
-    }
-    k = e;
-    for (e = k + nFlow; k < e; k += L) {                 // current running round the rings
-      var rg = (Math.random() * CYL) | 0, a0 = rnd(0, 6.283), rf = Math.random() < 0.65 ? 1 : 0.5;
-      for (q = 0; q < L && k + q < e; q++) { AR[k + q] = 6; AG[k + q] = rg; AU[k + q] = a0 + q * 0.045; AX[k + q] = rf; AZ[k + q] = q / L; cylRGB(k + q, rg, 1, 0.2); }
-    }
-    k = e;
-    for (; k < N; k += L) {                               // the rest zip up and down the spine
-      var dn = Math.random() < 0.5 ? 1 : 0, p0 = Math.random();
-      for (q = 0; q < L && k + q < N; q++) { AR[k + q] = 7; AG[k + q] = dn; AU[k + q] = p0 - q * 0.012; AX[k + q] = q / L; setRGB(k + q, 0.85, 0.95, 1); }
-    }
-    anim = { kind: 'schematic', t0: now, chips: chips, cyl: cyl, R: R, s: s, n: n, cx: box.x + box.w / 2, cy: 0,
-             F: R * 3.2, tall: false, zr: R * 1.3, base: Math.max(1.3, Math.min(2.2, s / 13)),
-             spineTop: spineTop, spineBot: spineBot, stroke: G.stroke, tilt: tilt, pitch: pitch,
-             fi: 0, count: 0, crank: 0, active: FIRE_ORDER[0], lastFire: now, zoom: 1, fx: 0, fy: 0, hover: -1 };
-    // centre the block, leaving room under it for the board
-    anim.cy = box.y + (box.h - 74) / 2 - (sp[0] + sp[1]) / 2;
-    var lowEdge = anim.cy + sp[1], over = lowEdge - (box.y + box.h - 74) - (sp[1] - sp[0]) * 0.1;
-    if (over > 0) anim.cy -= over;
-    anim.fx = anim.cx; anim.fy = anim.cy;
-    // the hover area: the block itself, never the board under it or the channel names below
-    anim.bx0 = anim.cx - R * 1.05; anim.bx1 = anim.cx + R * 1.05;
-    anim.by0 = Math.max(box.y, anim.cy + sp[0]); anim.by1 = Math.min(box.y + box.h - 74, anim.cy + sp[1]);
-    var SA = anim;
-    // Rings rest half a step off the front, so their chips stagger instead of lining up. Firing
-    // kicks the next ring in the order half a step onto a chip at the front, and lets the
-    // last one kick on half a step: every ring turns in two strokes.
-    SA.fire = function (t) {
-      var P = SA.cyl[SA.active]; P.target = Math.round(P.target) + 0.5;
-      SA.fi = (SA.fi + 1) % CYL; SA.active = FIRE_ORDER[SA.fi]; SA.count++;
-      var C = SA.cyl[SA.active]; C.target = Math.round(C.target + 0.5); C.fired = t; SA.lastFire = t;
+    A.proj[b] = p;
+  }
+  // Where a tile sits for its offset r from the front (0 = front, -1 = just left, and so on):
+  // across, set back, turned in to face the middle, shrinking and fading toward the ends
+  function showSlot(A, r, t, out) {
+    var ar = Math.abs(r), sg = r < 0 ? -1 : 1, near = clamp01(1 - ar), B = A.big;
+    out.x = sg * (ar < 1 ? ar * 1.75 : 1.75 + (ar - 1) * 1.2) * B;
+    out.z = (ar < 1 ? ar * 1.2 : 1.2 + (ar - 1) * 0.55) * B;
+    out.y = near * Math.sin(t * 0.0012) * B * 0.04;
+    out.yaw = -Math.max(-1, Math.min(1, r)) * 0.95 + near * Math.sin(t * 0.0008) * 0.32; out.pit = near * Math.sin(t * 0.0006 + 1) * 0.12;
+    out.sc = B * (1 - 0.4 * Math.min(1, ar)); out.vis = clamp01((2.7 - ar) / 1) * (ar > 1 ? 0.85 : 1); out.near = near;
+  }
+  function initSchematic(now) {
+    var n = PROJECTS.length, tall = box.h > box.w, k;
+    var big = Math.min(box.h * (tall ? 0.24 : 0.3), box.w * (tall ? 0.36 : 0.16));   // half-size of the front tile
+    anim = { kind: 'schematic', t0: now, n: n, big: big, cx: box.x + box.w / 2, cy: box.y + (box.h - 80) / 2, F: big * 9, tall: false,
+             zr: big * 6, base: Math.max(1.2, Math.min(2, big / 60)), pitch: tall ? 0.18 : 0.12, turn: 0, target: 0, last: now,
+             per: Math.floor(N * 0.86 / SHOW_BUF), proj: [], pos: [], T: [], hv: [0, 0, 0, 0, 0, 0, 0], hover: -1 };
+    var A = anim;
+    A.rail0 = A.per * SHOW_BUF;
+    for (k = 0; k < A.rail0; k++) AG[k] = 0;
+    for (k = A.rail0; k < N; k++) { AG[k] = -1; AU[k] = Math.random(); AX[k] = Math.random() < 0.7 ? 0 : 1; setRGB(k, 0.3, 0.75, 1); }   // AX: 0 rail, 1 pulse
+    for (var b = 0; b < SHOW_BUF; b++) A.pos[b] = null;
+    // click a side tile to bring it to the front; click the front one for the next project
+    A.click = function (x, y) {
+      var best = null, bd = 1e9;
+      for (var b2 = 0; b2 < SHOW_BUF; b2++) { var T = A.T[b2]; if (!T || T.vis < 0.3) continue; var d = Math.abs(x - T.sx); if (d < bd) { bd = d; best = T; } }
+      A.target = best && Math.abs(best.m - Math.round(A.turn)) > 0 ? best.m : Math.round(A.target) + 1;
+      A.last = performance.now() + 1500;                    // hold a moment longer after a click
     };
-    SA.click = function () { SA.fire(performance.now()); };
-    view3(anim, 0, pitch);
+    view3(A, 0, A.pitch);
     if (schemEl && !board) {
       schemEl.innerHTML = '<div class="sx-board"><div class="sx-face"><span class="sx-name"></span>' +
                           '<span class="sx-meter"><i></i></span><span class="sx-st"></span></div></div>';
       board = schemEl.firstChild;
     }
-    if (board) { board.style.left = anim.cx + 'px'; board.style.top = Math.min(anim.cy + sp[1] + 6, box.y + box.h - 66) + 'px'; }
+    var fb = proj3(A, 0, big * 1.32, 0);
+    if (board) { board.style.left = A.cx + 'px'; board.style.top = Math.min(fb[1] + 6, box.y + box.h - 66) + 'px'; }
     boardShown = -1;
   }
   function updateSchematic(now) {
-    var A = anim, t = now - A.t0, n = A.n, k, i, j, c, C, M, m;
-    // the cylinders fire on their own in the firing order; a click fires the next one now
-    if (!reduce && now - A.lastFire > FIRE_EVERY) A.fire(now);
-    // The crank: every firing is half a turn, so each ring is at the top of its stroke as it fires
-    // (rings 1 and 4 move together, 2 and 3 opposite them, as in an inline four)
-    var crankTo = Math.PI * (A.count + (reduce ? 0 : clamp01((now - A.lastFire) / FIRE_EVERY)));
-    A.crank += (crankTo - A.crank) * 0.06;
-    // the whole block sways a little so you can see round it
-    view3(A, reduce ? 0 : Math.sin(t * 0.00027) * 0.22, A.pitch + (reduce ? 0 : Math.sin(t * 0.0002) * 0.04));
-    for (j = 0; j < CYL; j++) {
-      C = A.cyl[j];
-      C.turn += (C.target - C.turn) * 0.045;
-      C.glow = Math.exp(-(now - C.fired) / 600);        // a soft flash as it fires
-      C.py = C.y - A.stroke * Math.cos(A.crank + C.crank);
-      var phi = C.phi0 + (reduce ? 0 : t * 0.00012 * C.dir);   // each ring's plane slowly wheels round
-      C.M = tiltMatrix(phi, A.tilt * (1 + 0.12 * C.glow));
-      C.yaw = Math.PI / 2 - C.dir * C.turn * 6.283 / C.ids.length;
+    var A = anim, t = now - A.t0, n = A.n, k, m, b, S = {};
+    if (!reduce && now - A.last > SHOW_EVERY) { A.target = Math.round(A.target) + 1; A.last = now; }
+    A.turn += (A.target - A.turn) * 0.07;
+    var mid = Math.round(A.turn);
+    if (A.hover < 0) showOnBoard(((mid % n) + n) % n);
+    view3(A, 0, A.pitch);
+    // the seven tiles around the front one each have their own dot buffer; as the row slides,
+    // the buffer of a tile that leaves one end is refilled with the project entering the other
+    for (b = 0; b < SHOW_BUF; b++) A.T[b] = null;
+    for (m = mid - 3; m <= mid + 3; m++) {
+      b = ((m % SHOW_BUF) + SHOW_BUF) % SHOW_BUF;
+      if (A.pos[b] !== m) { showFill(A, b, ((m % n) + n) % n); A.pos[b] = m; A.hv[b] = 0; }
+      var T = {}; showSlot(A, m - A.turn, t, T); T.m = m;
+      var sp = proj3(A, T.x, T.y, T.z); T.sx = sp[0]; T.sy = sp[1]; T.ss = T.sc * sp[2];   // where it is on screen, and its half-size there
+      A.T[b] = T;
     }
-    for (i = 0; i < n; i++) {
-      c = A.chips[i]; C = A.cyl[c.cyl]; M = C.M; m = C.ids.length;
-      var th = C.dir * c.slot / m * 6.283 + C.yaw, lx = Math.cos(th) * A.R, lz = -Math.sin(th) * A.R, sx = Math.sin(th), sz = Math.cos(th);
-      c.x = M[0] * lx + M[2] * lz; c.y = M[3] * lx + M[5] * lz; c.z = M[6] * lx + M[8] * lz;
-      c.tx = M[0] * sx + M[2] * sz; c.ty = M[3] * sx + M[5] * sz; c.tz = M[6] * sx + M[8] * sz;
-      c.ux = M[1]; c.uy = M[4]; c.uz = M[7];
-      c.nx = c.ty * c.uz - c.tz * c.uy; c.ny = c.tz * c.ux - c.tx * c.uz; c.nz = c.tx * c.uy - c.ty * c.ux;   // depth axis
-      // each solid slowly turns and nods on its own, so its depth shows even when it faces you
-      var w1 = reduce ? 0.3 : Math.sin(t * 0.0006 + i * 1.3) * 0.38, w2 = reduce ? 0.15 : Math.sin(t * 0.00045 + i * 2.1) * 0.18;
-      c.cw = Math.cos(w1); c.sw = Math.sin(w1); c.cn = Math.cos(w2); c.sn = Math.sin(w2);
-      c.front = clamp01(-c.z / A.R);
+    // Rollover: the tile under the cursor (the one nearest the front wins where they overlap)
+    // lifts toward you, grows a touch, tilts to follow the cursor and brightens, and the board
+    // names it. The row keeps cycling underneath (the front tile is big, so the cursor is nearly
+    // always over something, and pausing on hover would stop it for good).
+    var over = ptr.on && ptr.field && !overNav && !reduce && !coarse, hb = -1, hr = 9;
+    if (over) for (b = 0; b < SHOW_BUF; b++) {
+      T = A.T[b];
+      if (!T || T.vis < 0.3) continue;
+      var ar2 = Math.abs(T.m - A.turn);
+      if (Math.abs(ptr.x - T.sx) < T.ss * 0.95 && Math.abs(ptr.y - T.sy) < T.ss * 1.1 && ar2 < hr) { hr = ar2; hb = b; }
     }
-    // Roll over the block and it zooms in on the spot under the cursor; the chip nearest the
-    // cursor takes over the board. Roll off and it zooms back out.
-    var inside = !coarse && !reduce && ptr.on && !overNav && ptr.x > A.bx0 && ptr.x < A.bx1 && ptr.y > A.by0 && ptr.y < A.by1;
-    A.zoom += ((inside ? ZOOM : 1) - A.zoom) * 0.055;
-    if (inside) { A.fx += (ptr.x - A.fx) * 0.07; A.fy += (ptr.y - A.fy) * 0.07; }
-    var Z = A.zoom, hov = -1;
-    if (inside && Z > 1.2) {
-      var best = (A.s * 2.2 * Z) * (A.s * 2.2 * Z);
-      for (i = 0; i < n; i++) {
-        c = A.chips[i];
-        var pp = proj3(A, c.x, A.cyl[c.cyl].py + c.y, c.z), dx = A.fx + (pp[0] - A.fx) * Z - ptr.x, dy = A.fy + (pp[1] - A.fy) * Z - ptr.y;
-        if (dx * dx + dy * dy < best) { best = dx * dx + dy * dy; hov = i; }
+    A.hover = hb;
+    for (b = 0; b < SHOW_BUF; b++) {
+      T = A.T[b];
+      A.hv[b] += ((b === hb ? 1 : 0) - A.hv[b]) * 0.14;
+      if (!T) continue;
+      var hv = A.hv[b];
+      if (hv > 0.001) {
+        var fx = Math.max(-1, Math.min(1, (ptr.x - T.sx) / T.ss)), fy = Math.max(-1, Math.min(1, (ptr.y - T.sy) / T.ss));
+        T.z -= A.big * 0.35 * hv; T.y -= A.big * 0.08 * hv; T.sc *= 1 + 0.12 * hv;
+        T.yaw += fx * 0.38 * hv; T.pit -= fy * 0.3 * hv;
       }
+      T.hv = hv;
+      T.cy = Math.cos(T.yaw); T.sy = Math.sin(T.yaw); T.cp = Math.cos(T.pit); T.sp = Math.sin(T.pit);
     }
-    m = A.cyl[A.active].ids.length;
-    var at = A.cyl[A.active].ids[((Math.round(A.cyl[A.active].turn) % m) + m) % m], feat = hov >= 0 ? hov : at;
-    showOnBoard(feat);
-    var g = clamp01((t - 150) / 650), on = t > 700 ? 1 : 0, spineLen = A.spineBot - A.spineTop;
+    if (hb >= 0) showOnBoard(A.proj[hb]);
+    var on = ptr.on && ptr.field && !overNav && !reduce, PR = 34, PR2 = PR * PR;
     for (k = 0; k < N; k++) {
-      var r = AR[k], x, y, z, size;
-      if (r === 0) { put3(A, k, AX[k], AY[k], AZ[k], A.base * 0.9 * g, undefined, A.zr); continue; }
-      if (r === 7) {                         // packets zipping up and down the spine
-        var p7 = t / 1100 + AU[k], u7 = p7 - Math.floor(p7);
-        y = AG[k] ? A.spineTop + u7 * spineLen : A.spineBot - u7 * spineLen;
-        put3(A, k, 0, y, 0, on * A.base * (1.5 - AX[k] * 1.1), undefined, A.zr); continue;
+      var x, y, z, size;
+      if (k < A.rail0) {
+        T = A.T[AG[k]];
+        if (!T) { ts[k] = 0; continue; }
+        var x1 = AX[k] * T.cy - AZ[k] * T.sy, z1 = AX[k] * T.sy + AZ[k] * T.cy;   // turn the tile, then tip it
+        var y1 = AY[k] * T.cp - z1 * T.sp, z2 = AY[k] * T.sp + z1 * T.cp;
+        x = T.x + x1 * T.sc; y = T.y + y1 * T.sc; z = T.z + z2 * T.sc;
+        var role = AU[k], p = PROJECTS[A.proj[AG[k]]].status;
+        if (role === 0) size = 0.95 * (1 + 0.45 * T.hv);         // the edges light up on rollover
+        else if (role === 1) size = 0.8;
+        else size = 1.3 * (1 + 0.4 * T.hv) * (p === 'done' ? 1 : p === 'almost' ? 0.6 + 0.4 * Math.sin(t * 0.004) : (Math.floor(t / 220) % 2 ? 1.3 : 0.4));
+        size *= A.base * Math.max(T.vis, T.hv) * (0.85 + 0.15 * Math.max(T.near, T.hv));
+      } else {                                   // the rail under the row, with pulses running along it
+        var u = AX[k] ? showFrac(AU[k] + t * 0.00011) * 2 - 1 : AU[k] * 2 - 1, ar = Math.abs(u) * 3.1;
+        x = u * 3.4 * A.big; z = ar * ar * 0.06 * A.big; y = A.big * 1.12;   // a nearly straight line, bowing back a touch at the ends
+        var fadeE = clamp01((3.1 - ar) / 1.4);
+        size = A.base * (AX[k] ? 1.1 : 0.55) * fadeE;
       }
-      if (r === 1 || r === 6) {              // the rings' traces, and the current running round them
-        C = A.cyl[AG[k]]; M = C.M;
-        var ang = r === 1 ? C.dir * AU[k] + C.yaw : AU[k] - C.dir * t * 0.0016, rad = A.R * AX[k] * (r === 1 ? g : 1);
-        var lx1 = Math.cos(ang) * rad, lz1 = -Math.sin(ang) * rad;
-        size = r === 1 ? A.base * 0.8 * (1 + 0.6 * C.glow) : on * A.base * (1.35 - AZ[k] * 1) * (1 + 0.8 * C.glow);
-        put3(A, k, M[0] * lx1 + M[2] * lz1, C.py + M[3] * lx1 + M[5] * lz1, M[6] * lx1 + M[8] * lz1, size, undefined, A.zr); continue;
-      }
-      c = A.chips[AG[k]]; C = A.cyl[c.cyl];
-      if (r === 2) {                         // spokes from the spine out to each chip
-        var u = AU[k];
-        put3(A, k, c.x * u * 0.94 + AX[k], C.py + c.y * u * 0.94 + AY[k], c.z * u * 0.94, u <= g ? A.base * 0.85 : 0, undefined, A.zr);
-      } else if (r === 3 || r === 4) {
-        // the featured chip swells so its icon reads: the one under the cursor, or the firing ring's front chip
-        var hl = 1 + (AG[k] === feat ? (hov >= 0 ? 0.45 : 0.7 * Math.pow(c.front, 6)) : 0);
-        var ax = AX[k] * c.cw - AZ[k] * c.sw, az0 = AX[k] * c.sw + AZ[k] * c.cw;     // turn about its own upright
-        var ay = AY[k] * c.cn - az0 * c.sn, az = AY[k] * c.sn + az0 * c.cn;          // then nod
-        x = c.x + (ax * c.tx + ay * c.ux + az * c.nx) * hl;
-        y = C.py + c.y + (ax * c.ty + ay * c.uy + az * c.ny) * hl;
-        z = c.z + (ax * c.tz + ay * c.uz + az * c.nz) * hl;
-        if (r === 3) size = A.base * (g > 0.6 ? 1 : 0) * (AU[k] ? 0.72 : 0.85) * (AG[k] === feat ? 1.15 : 1) * (1 + 0.2 * C.glow);
-        else {
-          var p = PROJECTS[AG[k]].status, lv = p === 'done' ? 1 : p === 'almost' ? 0.55 + 0.45 * Math.sin(t * 0.004) : (Math.floor(t / 180 + AG[k]) % 2 ? 1.4 : 0.35);
-          if (AG[k] === feat) lv *= 1.5;
-          size = on * A.base * 1.05 * lv * (1 + 0.4 * C.glow);
-        }
-        put3(A, k, x, y, z, size, undefined, A.zr);
-      } else {                               // streaks: up the spine from the base, then out along a spoke to a chip
-        var d1 = A.spineBot - C.py, d2 = A.R * 0.94, p5 = t / 1500 + AU[k], u5 = p5 - Math.floor(p5), sd = u5 * (d1 + d2);
-        if (sd < d1) { x = 0; y = A.spineBot - sd; z = 0; }
-        else { var f = (sd - d1) / A.R; x = c.x * f; y = C.py + c.y * f; z = c.z * f; }
-        put3(A, k, x, y, z, on * A.base * (1.5 - AX[k] * 1.1) * (0.6 + 1.1 * C.glow) * (c.cyl === A.active ? 1.2 : 1), undefined, A.zr);
-      }
-    }
-    // the zoom, plus a gentle dip through the block each time a cylinder fires
-    var since = now - A.lastFire, jolt = reduce ? 0 : Math.sin(Math.min(1, since / 700) * Math.PI) * 2;
-    var gs = 1 + (Z - 1) * 0.25, y0 = box.y - 4, y1 = box.y + box.h + 4;
-    if (Z > 1.002 || jolt) {
-      for (k = 0; k < N; k++) {
-        var Y = A.fy + (ty[k] - A.fy) * Z + jolt;
-        tx[k] = A.fx + (tx[k] - A.fx) * Z; ty[k] = Y;
-        if (Z > 1.002) ts[k] = (Y < y0 || Y > y1) ? 0 : ts[k] * gs;   // keep the zoomed block inside its area
+      put3(A, k, x, y, z, size, undefined, A.zr);
+      if (on) {                                  // the shooting star nudges dots aside as it passes
+        var dx = tx[k] - ptr.x, dy = ty[k] - ptr.y, d2 = dx * dx + dy * dy;
+        if (d2 < PR2) { var d = Math.sqrt(d2) + 0.01, fo = 1 - d / PR, pu = 12 * fo * fo; tx[k] += dx / d * pu; ty[k] += dy / d * pu; }
       }
     }
   }
+  function showFrac(x) { return x - Math.floor(x); }
 
   /* ---- FLICK SYSTEMS in 3D ----
      The Doto wordmark is rastered, then every lit pixel becomes a dot on the
@@ -1630,7 +1385,9 @@ footer a:hover{text-decoration:underline}
   }
   function apply(force, spread) {
     var name = preview || home;
-    if (!name || (name === current && !force)) return;
+    // a forced change to the idle source (the intro reel moving on) must not rebuild a channel
+    // you're previewing: that restarted Systems on its first project and reseeded Chaos
+    if (!name || (name === current && (!force || preview))) return;
     current = name;
     glitchNow(1.3);
     rain.cols.forEach(function (c) { c.on = Math.random() < (RAIN_AMT[name] || 0.2); });
