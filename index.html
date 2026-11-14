@@ -549,9 +549,65 @@ footer a:hover{text-decoration:underline}
         if (r < 0.22 && az > 0.06) { var fj = clamp01(az / 3.6); BR[k] = 0.62 + 0.38 * (1 - fj); BG[k] = 0.88 + 0.12 * (1 - fj); BB[k] = 1; return 1.8 - 0.7 * fj; }
         if (r <= 1) { var u = clamp01((r - 0.08) / 0.92); BR[k] = 1; BG[k] = 0.97 - 0.3 * u; BB[k] = 0.92 - 0.72 * u; return 1.7 - 0.8 * u; }
         BR[k] = 0.62; BG[k] = 0.2; BB[k] = 0.85; return 0.7;
+      } },
+    // The Milky Way: a barred spiral seen tilted. A warm bulge and a bar of old stars, two major
+    // spiral arms and two fainter ones of young blue-white stars with pink star-forming knots,
+    // a faint wider disk and a sparse halo. Laid out directly (seed) rather than settled from a
+    // flow, and turned nearly as a rigid wheel: real stars orbit at different speeds, which would
+    // wind the arms up within seconds, while the arms themselves (density waves) hold their shape.
+    { name: 'MILKY WAY', params: 'barred spiral  2 major arms  ~200 billion stars', dt: 0.01, c: [0, 0, 0], k: 1 / 1.75, pitch: 0.85, kick: 0.3,
+      f: function (x, y, z, o) {
+        var r = Math.sqrt(x * x + y * y), w = 0.32 * (1 + 0.25 * (1 / (r + 0.5) - 0.5));   // a touch faster inside
+        o[0] = -y * w; o[1] = x * w; o[2] = -z * 1.2;   // and anything knocked out of the disk settles back into it
+      },
+      seed: function (k) {
+        var c = Math.random(), x, y, z, a;
+        if (Math.random() < 0.028) {             // prominent stars: big, bright and twinkling, mostly strung along the arms
+          AG[k] = 6;
+          if (Math.random() < 0.65) {
+            var arm6 = Math.random() < 0.5 ? 0 : Math.PI, r6 = 0.45 + Math.random() * 1.25, th6 = Math.log(r6 / 0.45) / Math.tan(0.26) + arm6 + 0.4;
+            x = Math.cos(th6) * r6 + attGauss() * 0.06; y = Math.sin(th6) * r6 + attGauss() * 0.06;
+          } else { var r7 = 0.3 + Math.random() * 1.5; a = Math.random() * 6.283; x = Math.cos(a) * r7; y = Math.sin(a) * r7; }
+          z = attGauss() * 0.04;
+          AX[k] = x; AY[k] = y; AZ[k] = z; return;
+        }
+        if (c < 0.14) {                          // bulge
+          AG[k] = 0; x = attGauss() * 0.2; y = attGauss() * 0.2; z = attGauss() * 0.13;
+        } else if (c < 0.22) {                   // the bar, lined up with where the arms begin
+          AG[k] = 1; var bx = (Math.random() * 2 - 1) * 0.55, by = attGauss() * 0.07;
+          x = bx * Math.cos(0.4) - by * Math.sin(0.4); y = bx * Math.sin(0.4) + by * Math.cos(0.4); z = attGauss() * 0.04;
+        } else if (c < 0.84) {                   // spiral arms: logarithmic spirals off the ends of the bar
+          var arm = Math.random() < 0.86 ? (Math.random() < 0.5 ? 0 : Math.PI) : (Math.random() < 0.5 ? Math.PI / 2 : Math.PI * 1.5);
+          var r = 0.45 + Math.pow(Math.random(), 0.85) * 1.25, th = Math.log(r / 0.45) / Math.tan(0.26) + arm + 0.4, sp = 0.025 + 0.03 * r;
+          x = Math.cos(th) * r + attGauss() * sp; y = Math.sin(th) * r + attGauss() * sp; z = attGauss() * 0.025;
+          AG[k] = Math.random() < 0.07 ? 3 : 2;
+        } else if (c < 0.975) {                  // the faint disk between and beyond the arms
+          AG[k] = 4; var rd = 0.1 - Math.log(1 - Math.random() * 0.95) * 0.5; a = Math.random() * 6.283;
+          x = Math.cos(a) * rd; y = Math.sin(a) * rd; z = attGauss() * 0.04;
+        } else {                                 // the halo
+          AG[k] = 5; var rh = 1 + Math.random() * 0.9, ct = Math.random() * 2 - 1, st2 = Math.sqrt(1 - ct * ct); a = Math.random() * 6.283;
+          x = Math.cos(a) * st2 * rh; y = Math.sin(a) * st2 * rh; z = ct * rh * 0.7;
+        }
+        AX[k] = x; AY[k] = y; AZ[k] = z;
+      },
+      tint: function (k) {                       // colour by star population; returns the dot's size
+        var g = AG[k], v = 0.85 + 0.3 * dotHash(k, 1);
+        if (g === 0) { BR[k] = 0.95 * v; BG[k] = 0.78 * v; BB[k] = 0.5 * v; return 0.95; }   // bulge: old, warm gold
+        if (g === 1) { BR[k] = 0.95 * v; BG[k] = 0.72 * v; BB[k] = 0.45 * v; return 0.9; }
+        if (g === 2) { var wt = dotHash(k, 2) < 0.3; BR[k] = (wt ? 0.95 : 0.6) * v; BG[k] = (wt ? 0.95 : 0.78) * v; BB[k] = v; return wt ? 1 : 0.85; }   // arms: young, blue-white
+        if (g === 3) { BR[k] = 1; BG[k] = 0.32; BB[k] = 0.62; return 1.3; }                // star-forming knots
+        if (g === 4) { BR[k] = 0.3 * v; BG[k] = 0.3 * v; BB[k] = 0.38 * v; return 0.5; }    // disk, kept faint so the arms stand out
+        if (g === 6) {                           // prominent stars: blue-white, white or amber; a few are giants
+          var hh = dotHash(k, 3), hero = dotHash(k, 4) < 0.15, tw = 0.8 + 0.25 * Math.sin(performance.now() * 0.004 + hh * 50);
+          if (hh < 0.5) { BR[k] = 0.8; BG[k] = 0.9; BB[k] = 1; } else if (hh < 0.8) { BR[k] = 1; BG[k] = 1; BB[k] = 0.97; } else { BR[k] = 1; BG[k] = 0.78; BB[k] = 0.5; }
+          return (hero ? 5.6 : 3) * tw;
+        }
+        BR[k] = 0.55 * v; BG[k] = 0.5 * v; BB[k] = 0.42 * v; return 0.65;                  // halo
       } }
   ];
   var ATT_O = [0, 0, 0], ATT_MORPH = 16000;
+  function attGauss() { return Math.sqrt(-2 * Math.log(Math.random() + 1e-9)) * Math.cos(6.283 * Math.random()); }   // a normal random number
+  function dotHash(i, seed) { var h = Math.sin(i * 12.9898 + seed * 78.233) * 43758.5453; return h - Math.floor(h); }   // a fixed random 0..1 per dot
   var ATT_COLS = [[0.25, 0.84, 1], [1, 0.3, 0.82], [1, 0.8, 0.25]];   // slow, medium, fast
   function attStep(at, k, h) {               // one midpoint (RK2) step; returns the speed
     var x = AX[k], y = AY[k], z = AZ[k], o = ATT_O;
@@ -565,6 +621,11 @@ footer a:hover{text-decoration:underline}
   // Put the whole swarm on attractor `ai`: a few dozen seeds settle onto it, then each seed
   // lays down a run of dots along its own path, so the dots start out as flowing streams.
   function seedAttractor(A, ai) {
+    if (ATTRACTORS[ai].seed) {               // a shape laid out directly, then turned by its flow
+      var sa = ATTRACTORS[ai], vs2 = 0;
+      for (var k2 = 0; k2 < N; k2++) { sa.seed(k2); sa.f(AX[k2], AY[k2], AZ[k2], ATT_O); AU[k2] = Math.hypot(ATT_O[0], ATT_O[1], ATT_O[2]); vs2 += AU[k2]; }
+      A.ai = ai; A.vref = vs2 / N * 1.7 || 1; A.next = performance.now() + ATT_MORPH; return;
+    }
     var at = ATTRACTORS[ai], S = 40, per = Math.ceil(N / S), k = 0, i, j, vs = 0, tmp = N - 1;
     for (i = 0; i < S && k < N; i++) {
       AX[tmp] = at.c[0] + rnd(-0.4, 0.4) / at.k; AY[tmp] = at.c[1] + rnd(-0.4, 0.4) / at.k; AZ[tmp] = at.c[2] + rnd(-0.4, 0.4) / at.k;
@@ -613,8 +674,8 @@ footer a:hover{text-decoration:underline}
     // out sideways from its line of flight, and a little ahead, like a bullet through smoke;
     // the chaos scatters them and the attractor pulls them back in. Standing still, it just
     // nudges the nearest dots straight out.
-    var R = coarse ? 46 : 38, R2 = R * R, spd = Math.hypot(ptr.vx, ptr.vy), mv = spd > 0.01;
-    var ux = mv ? ptr.vx / spd : 0, uy = mv ? ptr.vy / spd : 0, shove = (1.2 + Math.min(10, spd * 6)) / (at.k * S);   // px a frame, in attractor units
+    var R = coarse ? 46 : 38, R2 = R * R, spd = Math.hypot(ptr.vx, ptr.vy), mv = spd > 0.01, kf = at.kick || 1;
+    var ux = mv ? ptr.vx / spd : 0, uy = mv ? ptr.vy / spd : 0, shove = kf * (1.2 + Math.min(10, spd * 6)) / (at.k * S);   // px a frame, in attractor units
     for (k = 0; k < N; k++) {
       if (on) {
         var dx = tx[k] - ptr.x, dy = ty[k] - ptr.y, d2 = dx * dx + dy * dy;
